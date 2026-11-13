@@ -12,6 +12,7 @@ import type { ToolDefinition } from "../../core/extensions/types.ts";
 import { getTextOutput, replaceTabs, startToolTimer, str, toolTimerText } from "../../core/tools/render-utils.ts";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.ts";
 import { VisualLinePreview } from "../../modes/interactive/components/visual-truncate.ts";
+import { icon } from "../../modes/interactive/icons.ts";
 import { CodeHighlighter, type Theme } from "../../modes/interactive/theme/theme.ts";
 import type { CodemodeNestedCall, CodemodeToolDetails } from "./tool.ts";
 
@@ -76,7 +77,7 @@ export const codemodeRenderers: Pick<
 		startToolTimer(context);
 		// The code includes the `// @options:` line, so options show as part of the script.
 		const code = str((args as { code?: unknown } | undefined)?.code);
-		const title = theme.fg("toolTitle", theme.bold("codemode"));
+		const title = theme.fg("toolTitle", theme.bold(`${icon("code")} codemode`));
 		const component = (context.lastComponent as Container | undefined) ?? new Container();
 		component.clear();
 		if (code === null) {

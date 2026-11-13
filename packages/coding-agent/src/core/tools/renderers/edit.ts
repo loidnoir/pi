@@ -8,6 +8,7 @@
 
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { renderDiff } from "../../../modes/interactive/components/diff.ts";
+import { icon } from "../../../modes/interactive/icons.ts";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolDefinition } from "../../extensions/types.ts";
 import type { EditToolDetails } from "../edit.ts";
@@ -82,7 +83,7 @@ function getRenderablePreviewInput(args: RenderableEditArgs | undefined): { path
 }
 function formatEditCall(args: RenderableEditArgs | undefined, theme: Theme, cwd: string): string {
 	const pathDisplay = renderToolPath(str(args?.file_path ?? args?.path), theme, cwd);
-	return `${theme.fg("toolTitle", theme.bold("edit"))} ${pathDisplay}`;
+	return `${theme.fg("toolTitle", theme.bold(`${icon("edit")} edit`))} ${pathDisplay}`;
 }
 function formatEditResult(
 	args: RenderableEditArgs | undefined,

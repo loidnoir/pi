@@ -2,6 +2,7 @@
 import { Type } from "typebox";
 import type { ToolDefinition } from "../extensions/types.ts";
 import { JobManager } from "./manager.ts";
+import { renderJobsCall, renderJobsResult } from "./render.ts";
 import { JobInfoSchema } from "./state.ts";
 
 const parameters = Type.Object({
@@ -36,6 +37,11 @@ const outputSchema = Type.Object({
 	deleted: Type.Optional(Type.String()),
 });
 
+export interface JobsToolDetails {
+	jobId?: string;
+	jobState?: string;
+}
+
 function display(value: unknown): string {
 	return JSON.stringify(value, null, 2);
 }
@@ -44,7 +50,7 @@ function display(value: unknown): string {
 export function createJobsToolDefinition(
 	cwd: string,
 	manager = new JobManager(),
-): ToolDefinition<typeof parameters, { jobId?: string; jobState?: string }> {
+): ToolDefinition<typeof parameters, JobsToolDetails, unknown> {
 	return {
 		name: "jobs",
 		label: "jobs",
@@ -58,6 +64,8 @@ export function createJobsToolDefinition(
 		],
 		parameters,
 		outputSchema,
+		renderCall: renderJobsCall,
+		renderResult: renderJobsResult,
 		async execute(_id, params, signal, _onUpdate, ctx) {
 			signal?.throwIfAborted();
 			const { action, id } = params;

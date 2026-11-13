@@ -185,7 +185,7 @@ import { icon } from "@earendil-works/pi-coding-agent";
 const label = `${icon("code")} Code`;
 ```
 
-The supported names are `"code"`, `"quote"`, and `"copy"` (`IconName`). `icon()` returns an uncolored string; apply the supplied theme's colors separately. It follows the `iconPreset` setting (`"unicode"` or `"nerd"`, represented by `IconPreset`) across built-in components and separately loaded extensions. Resolve icons during rendering, or rebuild cached labels from `invalidate()`, so switching presets updates existing UI. Nerd Font icons require a compatible font selected in the terminal.
+`IconName` includes content actions (`"code"`, `"quote"`, `"copy"`), chat/form controls, agent roles, and semantic actions such as `"read"`, `"write"`, `"edit"`, `"search"`, `"folder"`, `"terminal"`, `"skill"`, `"job"`, `"tool"`, and `"thinking"`. `icon()` returns an uncolored string; apply the supplied theme's colors separately. It follows the `iconPreset` setting (`"unicode"` or `"nerd"`, represented by `IconPreset`) across built-in components and separately loaded extensions. Resolve icons during rendering, or rebuild cached labels from `invalidate()`, so switching presets updates existing UI. Nerd Font icons require a compatible font selected in the terminal.
 
 Extensions that construct `SettingsSelectorComponent` must provide `SettingsConfig.iconPreset` and `SettingsCallbacks.onIconPresetChange`.
 

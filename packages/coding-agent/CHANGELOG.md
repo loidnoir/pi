@@ -43,6 +43,10 @@
 
 ### Changed
 
+- Simplified the default footer to one line: directory and input/output token totals on the left, context and model on the right. Branch/session labels, cache statistics, and cost are no longer shown in the footer; `/session` retains detailed usage.
+- Added semantic action icons to thinking and tool blocks, plus language-specific Nerd Font file icons in tool paths and search/listing results. Job/sub-agent actions and completion notices now show compact human-readable summaries with expandable original details.
+- Clarification forms now separate questions, spaced choices, review, and submission controls, with wrapped labels and contextual keyboard hints.
+- Job-specific panes now close automatically when their job reaches a final state, including completion during pane startup. Logs and job records remain available; general job lists, unreachable jobs, and deliberately reopened historical views remain open.
 - The default model for the `anthropic` provider is now Claude Opus 5.5 (`claude-opus-5-5`) instead of Claude Opus 4.8
 - Default models moved to newer models at the same or a lower price: `amazon-bedrock` Claude Opus 5.5, `azure` GPT-6.1 Sol, `google` and `google-vertex` Gemini 4 Argon, `vercel-ai-gateway` GLM 5.3, `baseten` GLM 5.3, `minimax` and `minimax-cn` MiniMax-M3, `qwen-token-plan` and `qwen-token-plan-cn` Qwen3.8 Max, `opencode-go` Kimi K3.1 Pro, and Kimi K2.7 Code instead of Kimi K2.6 for `moonshotai`, `moonshotai-cn`, `huggingface`, `opencode`, `openrouter`, `cloudflare-workers-ai` and `cloudflare-ai-gateway`
 - Consecutive cache warms now show as one `Cache warmed: $<total>` line with the cumulative cost instead of one line per warm

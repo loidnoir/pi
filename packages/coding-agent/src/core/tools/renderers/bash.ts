@@ -9,6 +9,7 @@
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import { VisualLinePreview } from "../../../modes/interactive/components/visual-truncate.ts";
+import { icon } from "../../../modes/interactive/icons.ts";
 import { theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
 import type { BashToolDetails } from "../bash.ts";
@@ -17,12 +18,21 @@ import { DEFAULT_MAX_BYTES, formatSize } from "../truncate.ts";
 
 const BASH_PREVIEW_LINES = 5;
 export const BASH_UPDATE_THROTTLE_MS = 100;
-function formatShellCall(args: { command?: string; timeout?: number } | undefined, prompt: string): string {
+type ShellRenderArgs = { command?: string; timeout?: number; async?: boolean; name?: string };
+
+function formatShellCall(args: ShellRenderArgs | undefined, prompt: string): string {
 	const command = str(args?.command);
 	const timeout = args?.timeout as number | undefined;
 	const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
 	const commandDisplay = command === null ? invalidArgText(theme) : command ? command : theme.fg("toolOutput", "...");
-	return theme.fg("toolTitle", theme.bold(`${prompt} ${commandDisplay}`)) + timeoutSuffix;
+	if (args?.async) {
+		const name = str(args.name);
+		return (
+			theme.fg("toolTitle", theme.bold(`${icon("job")} Start background job${name ? ` · ${name}` : ""}`)) +
+			`\n${theme.fg("muted", `${prompt} ${commandDisplay}`)}${timeoutSuffix}`
+		);
+	}
+	return theme.fg("toolTitle", theme.bold(`${icon("terminal")} ${prompt} ${commandDisplay}`)) + timeoutSuffix;
 }
 function rebuildBashResultRenderComponent(
 	component: Container,
@@ -35,6 +45,19 @@ function rebuildBashResultRenderComponent(
 	timerText: string | undefined,
 ): void {
 	component.clear();
+
+	if (result.details?.jobId && !options.expanded) {
+		const state = result.details.jobState ?? "submitted";
+		const color = state === "failed" ? "error" : "muted";
+		component.addChild(
+			new Text(
+				`\n${theme.fg(color, `Job ${result.details.jobId.slice(0, 8)} · ${state}`)} ${keyHint("app.tools.expand", "for details")}`,
+				0,
+				0,
+			),
+		);
+		return;
+	}
 
 	let output = getTextOutput(result as any, showImages).trim();
 	const truncation = result.details?.truncation;
@@ -103,7 +126,7 @@ export function createShellRenderers(prompt: string): Pick<ToolDefinition<any, a
 		renderCall(args, _theme, context) {
 			startToolTimer(context);
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatShellCall(args as { command?: string; timeout?: number } | undefined, prompt));
+			text.setText(formatShellCall(args as ShellRenderArgs | undefined, prompt));
 			return text;
 		},
 		renderResult(result, options, _theme, context) {

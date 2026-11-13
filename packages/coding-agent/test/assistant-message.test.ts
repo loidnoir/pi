@@ -1,8 +1,9 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { TuiMouseEvent } from "@earendil-works/pi-tui";
+import { type TuiMouseEvent, visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { AssistantMessageComponent } from "../src/modes/interactive/components/assistant-message.ts";
 import { UserMessageComponent } from "../src/modes/interactive/components/user-message.ts";
+import { icon, setIconPreset } from "../src/modes/interactive/icons.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 import * as syntaxHighlight from "../src/utils/syntax-highlight.ts";
@@ -35,7 +36,10 @@ function createAssistantMessage(
 }
 
 describe("AssistantMessageComponent", () => {
-	afterEach(() => vi.restoreAllMocks());
+	afterEach(() => {
+		vi.restoreAllMocks();
+		setIconPreset("unicode");
+	});
 
 	test("reuses its Markdown across streaming and its end, and renders like a new component after a theme change", () => {
 		initTheme("dark");
@@ -163,7 +167,12 @@ describe("AssistantMessageComponent", () => {
 			]),
 			true,
 		);
-		expect(component.render(80).map((line) => stripAnsi(line).trim())).toEqual(["", "Thinking...", "", "answer"]);
+		expect(component.render(80).map((line) => stripAnsi(line).trim())).toEqual([
+			"",
+			`${icon("thinking")} Thinking...`,
+			"",
+			"answer",
+		]);
 	});
 
 	test("collapses individual thinking runs when clicked", () => {
@@ -222,7 +231,40 @@ describe("AssistantMessageComponent", () => {
 		component.setOutputPad(0);
 		const updatedLines = component.render(80).map((line) => stripAnsi(line));
 		expect(updatedLines.some((line) => line.startsWith("hello"))).toBe(true);
-		expect(updatedLines.some((line) => line.startsWith("reasoning"))).toBe(true);
+		expect(updatedLines.some((line) => line.startsWith(`${icon("thinking")} reasoning`))).toBe(true);
+	});
+
+	test("updates reasoning icons with the preset without changing Markdown source", () => {
+		initTheme("dark");
+		const sources: string[] = [];
+		const message = createAssistantMessage([
+			{ type: "thinking", thinking: "# Inspecting the renderer\n\nNext step" },
+		]);
+		const component = new AssistantMessageComponent(message, false, undefined, "Thinking...", 1, [
+			(markdown) => {
+				sources.push(markdown);
+				return markdown;
+			},
+		]);
+		setIconPreset("nerd");
+		component.invalidate();
+		expect(stripAnsi(component.render(80).join("\n"))).toContain(icon("thinking"));
+		setIconPreset("unicode");
+		component.invalidate();
+		expect(stripAnsi(component.render(80).join("\n"))).toContain(`${icon("thinking")} Inspecting`);
+		expect(sources.every((source) => source === "# Inspecting the renderer\n\nNext step")).toBe(true);
+		expect(message.content).toEqual([{ type: "thinking", thinking: "# Inspecting the renderer\n\nNext step" }]);
+	});
+
+	test.each([1, 2, 8, 20, 80])("keeps icon-prefixed reasoning within %i columns", (width) => {
+		initTheme("dark");
+		setIconPreset("nerd");
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "Inspecting a long line of renderer code with 日本語" },
+			]),
+		);
+		for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 	});
 
 	test("chains Markdown transformers in registration order", () => {

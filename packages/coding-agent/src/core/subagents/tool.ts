@@ -9,6 +9,7 @@ import { convertToLlm } from "../messages.ts";
 import { DEFAULT_MAX_BYTES } from "../tools/truncate.ts";
 import { type AgentDefinition, discoverAgentDefinitions } from "./definitions.ts";
 import type { StartSubagentOptions, SubagentManager } from "./manager.ts";
+import { renderSubagentCall, renderSubagentResult } from "./render.ts";
 import { SubagentIdSchema, type SubagentInfo, type SubagentResult } from "./state.ts";
 
 const parameters = Type.Object({
@@ -116,7 +117,7 @@ export function createSubagentToolDefinition(
 	getManager: (ctx: ExtensionContext) => SubagentManager,
 	agentDir: string,
 	observe: (id: string, ctx: ExtensionContext) => void,
-): ToolDefinition<typeof parameters> {
+): ToolDefinition<typeof parameters, unknown, unknown> {
 	return {
 		name: "subagent",
 		label: "Sub-agent",
@@ -131,6 +132,8 @@ export function createSubagentToolDefinition(
 			"Native sub-agents cannot recursively delegate. Child usage is reported separately from the parent's own model usage.",
 		],
 		parameters,
+		renderCall: renderSubagentCall,
+		renderResult: renderSubagentResult,
 		async execute(_callId, params, signal, onUpdate, ctx) {
 			signal?.throwIfAborted();
 			if (params.action === "roles") {

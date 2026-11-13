@@ -15,6 +15,16 @@ export type IconName =
 	| "agentScout"
 	| "agentReviewer"
 	| "agentPlanner"
+	| "thinking"
+	| "read"
+	| "write"
+	| "edit"
+	| "search"
+	| "folder"
+	| "terminal"
+	| "skill"
+	| "job"
+	| "tool"
 	| "statusDot";
 
 const ICONS: Record<IconPreset, Record<IconName, string>> = {
@@ -34,6 +44,16 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		agentScout: "?",
 		agentReviewer: "✓",
 		agentPlanner: "≡",
+		thinking: "◇",
+		read: "≡",
+		write: "+",
+		edit: "✎",
+		search: "⌕",
+		folder: "/",
+		terminal: ">_",
+		skill: "✦",
+		job: "⚙",
+		tool: "⚒",
 		statusDot: "\u2022",
 	},
 	nerd: {
@@ -52,6 +72,16 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		agentScout: "\uf002",
 		agentReviewer: "\uf132",
 		agentPlanner: "\uf0ae",
+		thinking: "\uf0eb",
+		read: "\uf15c",
+		write: "\uf0c7",
+		edit: "\uf040",
+		search: "\uf002",
+		folder: "\uf07b",
+		terminal: "\uf120",
+		skill: "\uf0d0",
+		job: "\uf085",
+		tool: "\uf0ad",
 		statusDot: "\u2022",
 	},
 };
@@ -59,10 +89,14 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 // Extensions loaded through jiti must see the same preset as the main interactive runtime.
 const ICON_PRESET_KEY = Symbol.for("@earendil-works/pi-coding-agent:icon-preset");
 
+/** Return the icon preset shared by the interactive runtime and extension module loaders. */
+export function getIconPreset(): IconPreset {
+	return (globalThis as Record<symbol, IconPreset | undefined>)[ICON_PRESET_KEY] ?? "unicode";
+}
+
 /** Return an uncolored icon using the interactive harness's current preset. */
 export function icon(name: IconName): string {
-	const preset = (globalThis as Record<symbol, IconPreset | undefined>)[ICON_PRESET_KEY] ?? "unicode";
-	return ICONS[preset][name];
+	return ICONS[getIconPreset()][name];
 }
 
 /** Apply the configured icon preset to all interactive components and extension module loaders. */

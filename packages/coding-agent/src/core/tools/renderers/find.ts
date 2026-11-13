@@ -8,20 +8,30 @@
 
 import { Text } from "@earendil-works/pi-tui";
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
+import { icon } from "../../../modes/interactive/icons.ts";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
-import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
+import type { ToolRenderers, ToolRenderResultOptions } from "../../extensions/types.ts";
 import type { FindToolDetails } from "../find.ts";
-import { getTextOutput, invalidArgText, shortenPath, str } from "../render-utils.ts";
+import {
+	decoratePathListing,
+	getTextOutput,
+	invalidArgText,
+	shortenPath,
+	str,
+	type ToolRenderResultLike,
+} from "../render-utils.ts";
 import { DEFAULT_MAX_BYTES, formatSize } from "../truncate.ts";
 
-function formatFindCall(args: { pattern?: string; path?: string; limit?: number } | undefined, theme: Theme): string {
+type FindRenderArgs = { pattern?: string; path?: string; limit?: number };
+
+function formatFindCall(args: FindRenderArgs | undefined, theme: Theme): string {
 	const pattern = str(args?.pattern ?? "**/*");
 	const rawPath = str(args?.path);
 	const path = rawPath !== null ? shortenPath(rawPath || ".") : null;
 	const limit = args?.limit;
 	const invalidArg = invalidArgText(theme);
 	let text =
-		theme.fg("toolTitle", theme.bold("find")) +
+		theme.fg("toolTitle", theme.bold(`${icon("search")} find`)) +
 		" " +
 		(pattern === null ? invalidArg : theme.fg("accent", pattern || "")) +
 		theme.fg("toolOutput", ` in ${path === null ? invalidArg : path}`);
@@ -38,11 +48,13 @@ function formatFindResult(
 	options: ToolRenderResultOptions,
 	theme: Theme,
 	showImages: boolean,
+	isError: boolean,
 ): string {
 	const output = getTextOutput(result, showImages).trim();
 	let text = "";
 	if (output) {
-		const lines = output.split("\n");
+		const outputLines = output.split("\n");
+		const lines = isError ? outputLines : decoratePathListing(outputLines);
 		const maxLines = options.expanded ? lines.length : 20;
 		const displayLines = lines.slice(0, maxLines);
 		const remaining = lines.length - maxLines;
@@ -63,15 +75,23 @@ function formatFindResult(
 	return text;
 }
 
-export const findRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "renderResult"> = {
+export const findRenderers: ToolRenderers = {
 	renderCall(args, theme, context) {
 		const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-		text.setText(formatFindCall(args as any, theme));
+		text.setText(formatFindCall(args as FindRenderArgs | undefined, theme));
 		return text;
 	},
 	renderResult(result, options, theme, context) {
 		const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-		text.setText(formatFindResult(result as any, options, theme, context.showImages));
+		text.setText(
+			formatFindResult(
+				result as ToolRenderResultLike<FindToolDetails | undefined>,
+				options,
+				theme,
+				context.showImages,
+				context.isError,
+			),
+		);
 		return text;
 	},
 };

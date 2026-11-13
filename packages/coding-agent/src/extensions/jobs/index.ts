@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import { Compile } from "typebox/compile";
 import type { ExtensionContext, ExtensionFactory } from "../../core/extensions/types.ts";
 import { JobManager } from "../../core/jobs/manager.ts";
+import { renderJobMessage } from "../../core/jobs/render.ts";
 import { createJobsToolDefinition } from "../../core/jobs/tool.ts";
 import { JobsView } from "../../core/jobs/view.ts";
 import { generateDisplayName } from "../../core/naming.ts";
@@ -24,6 +25,7 @@ export function createJobsExtension(manager = new JobManager()): ExtensionFactor
 		const observers = new Map<string, () => void>();
 		const namings = new Set<Promise<void>>();
 		pi.registerTool(createJobsToolDefinition(process.cwd(), manager));
+		pi.registerMessageRenderer("background-job", renderJobMessage);
 
 		async function present(
 			ctx: ExtensionContext,
@@ -47,6 +49,13 @@ export function createJobsExtension(manager = new JobManager()): ExtensionFactor
 			const opening = (async () => {
 				const job = id ? await manager.inspect(id) : undefined;
 				const project = job?.cwd ?? ctx.cwd;
+				if (
+					job &&
+					(job.runtime.state === "running" ||
+						job.runtime.state === "starting" ||
+						job.runtime.state === "unreachable")
+				)
+					observe(job.id, ctx);
 				const pane = await openPane(ctx, {
 					...options,
 					title: job ? `Job ${job.id.slice(0, 8)} — ${job.name}` : "Background jobs",
@@ -93,12 +102,39 @@ export function createJobsExtension(manager = new JobManager()): ExtensionFactor
 				return;
 			const owner = lifetime;
 			// Presentation must not delay submission or change the independent job's lifecycle.
-			void present(ctx, { backend: "rex", placement: "floating", minimized: true, fallback: "none" }, jobId).catch(
-				(error: unknown) => {
+			void present(ctx, { backend: "rex", placement: "floating", minimized: true, fallback: "none" }, jobId)
+				.then(async () => {
+					// A short job can finish before its pane is ready or before observation starts.
+					const job = await manager.inspect(jobId);
+					if (
+						job.runtime.state !== "running" &&
+						job.runtime.state !== "starting" &&
+						job.runtime.state !== "unreachable"
+					)
+						closeFinishedPane(jobId, ctx);
+				})
+				.catch((error: unknown) => {
 					if (!owner.signal.aborted) ctx.ui.notify(`Cannot open job ${jobId} in Rex: ${String(error)}`, "warning");
-				},
-			);
+				});
 		}
+
+		function closeFinishedPane(jobId: string, ctx: ExtensionContext): void {
+			const owner = lifetime;
+			const target = panes.get(jobId) ?? openings.get(jobId);
+			if (!target) return;
+			void Promise.resolve(target)
+				.then(async (pane) => {
+					// Only close the view owned by this job, including one still being opened at completion.
+					if (panes.get(jobId) !== pane) return;
+					panes.delete(jobId);
+					await pane.close();
+				})
+				.catch((error: unknown) => {
+					if (!owner.signal.aborted)
+						ctx.ui.notify(`Cannot close finished job ${jobId}: ${String(error)}`, "warning");
+				});
+		}
+
 		function nameSubmitted(jobId: string, ctx: ExtensionContext): void {
 			if (lifetime.signal.aborted || !ctx.model) return;
 			const model = ctx.model;
@@ -190,6 +226,7 @@ export function createJobsExtension(manager = new JobManager()): ExtensionFactor
 					)
 						return;
 					clear();
+					closeFinishedPane(id, ctx);
 					pi.sendMessage(
 						{
 							customType: "background-job",

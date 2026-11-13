@@ -2,13 +2,16 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
 	type Component,
 	Container,
+	HStack,
 	Markdown,
 	type MarkdownTheme,
 	MouseRegion,
 	Spacer,
 	Text,
+	visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { MarkdownTransformer } from "../../../core/extensions/types.ts";
+import { icon } from "../icons.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 import { createMarkdownTransform } from "./markdown-transform.ts";
 
@@ -192,14 +195,14 @@ export class AssistantMessageComponent extends Container {
 				}
 				const thinking = thinkingBlocks.join("\n\n");
 				const thinkingComponent = hidden
-					? new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0)
+					? new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), 0, 0)
 					: markdownBlock(
 							"thinking",
 							thinking,
 							() =>
 								new Markdown(
 									thinking,
-									this.outputPad,
+									0,
 									0,
 									this.markdownTheme,
 									{
@@ -217,8 +220,17 @@ export class AssistantMessageComponent extends Container {
 									},
 								),
 						);
+				const prefix = `${" ".repeat(this.outputPad)}${icon("thinking")} `;
+				const thinkingRow = new HStack([
+					{
+						component: new Text(theme.fg("thinkingText", prefix), 0, 0),
+						basis: visibleWidth(prefix),
+						shrink: 0,
+					},
+					{ component: thinkingComponent, basis: 0, grow: 1, minSize: 1 },
+				]);
 				addVisibleChild(
-					new MouseRegion(thinkingComponent, (event) => {
+					new MouseRegion(thinkingRow, (event) => {
 						if (event.type !== "click" || event.button !== "left") return undefined;
 						this.thinkingVisibilityOverrides.set(runIndex, !hidden);
 						if (this.lastMessage) this.updateContent(this.lastMessage);

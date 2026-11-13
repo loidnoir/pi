@@ -11,6 +11,7 @@ import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { getReadmePath } from "../../../config.ts";
 import { keyHint, keyText } from "../../../modes/interactive/components/keybinding-hints.ts";
+import { icon } from "../../../modes/interactive/icons.ts";
 import { getLanguageFromPath, highlightCode, type Theme } from "../../../modes/interactive/theme/theme.ts";
 import { formatPathRelativeToCwdOrAbsolute } from "../../../utils/paths.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
@@ -54,9 +55,8 @@ function styledReadLineRange(args: ReadRenderArgs | undefined, theme: Theme): st
 }
 function formatReadCall(args: ReadRenderArgs | undefined, theme: Theme, cwd: string): string {
 	const path = str(args?.file_path ?? args?.path);
-	const pathDisplay =
-		path && /^(?:artifact|https?):\/\//i.test(path) ? theme.fg("accent", path) : renderToolPath(path, theme, cwd);
-	return `${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}${styledReadLineRange(args, theme)}`;
+	const pathDisplay = renderToolPath(path, theme, cwd);
+	return `${theme.fg("toolTitle", theme.bold(`${icon("read")} read`))} ${pathDisplay}${styledReadLineRange(args, theme)}`;
 }
 function trimTrailingEmptyLines(lines: string[]): string[] {
 	let end = lines.length;
@@ -91,7 +91,7 @@ function getCompactReadClassification(
 	cwd: string,
 ): CompactReadClassification | undefined {
 	const rawPath = str(args?.file_path ?? args?.path);
-	if (!rawPath || /^(?:artifact|https?):\/\//i.test(rawPath) || args?.pages || args?.table || args?.query)
+	if (!rawPath || /^[a-z][a-z\d+.-]*:\/\//i.test(rawPath) || args?.pages || args?.table || args?.query)
 		return undefined;
 
 	const absolutePath = resolveToCwd(rawPath, cwd);
@@ -113,11 +113,12 @@ function formatCompactReadCall(
 	classification: CompactReadClassification,
 	args: ReadRenderArgs | undefined,
 	theme: Theme,
+	cwd: string,
 ): string {
 	const expandHint = theme.fg("dim", ` (${keyText("app.tools.expand")} to expand)`);
 	if (classification.kind === "skill") {
 		return (
-			theme.fg("customMessageLabel", `\x1b[1m[skill]\x1b[22m `) +
+			theme.fg("customMessageLabel", `\x1b[1m${icon("skill")} [skill]\x1b[22m `) +
 			theme.fg("customMessageText", classification.label) +
 			styledReadLineRange(args, theme) +
 			expandHint
@@ -125,9 +126,9 @@ function formatCompactReadCall(
 	}
 
 	return (
-		theme.fg("toolTitle", theme.bold(`read ${classification.kind}`)) +
+		theme.fg("toolTitle", theme.bold(`${icon("read")} read ${classification.kind}`)) +
 		" " +
-		theme.fg("accent", classification.label) +
+		renderToolPath(str(args?.file_path ?? args?.path), theme, cwd, { displayPath: classification.label }) +
 		styledReadLineRange(args, theme) +
 		expandHint
 	);
@@ -177,7 +178,9 @@ export const readRenderers: Pick<ToolDefinition<any, ReadToolDetails | undefined
 		const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
 		const classification = !context.expanded ? getCompactReadClassification(args, context.cwd) : undefined;
 		text.setText(
-			classification ? formatCompactReadCall(classification, args, theme) : formatReadCall(args, theme, context.cwd),
+			classification
+				? formatCompactReadCall(classification, args, theme, context.cwd)
+				: formatReadCall(args, theme, context.cwd),
 		);
 		return text;
 	},

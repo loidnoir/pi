@@ -6,7 +6,7 @@ Pi may ask whether you trust the working folder before loading its project resou
 
 <p align="center"><img src="images/interactive-mode.png" alt="Pi interactive mode showing a conversation, editor, and status information" width="750"></p>
 
-The transcript shows your prompts, Pi's responses, tool calls, results, and errors. You write prompts and commands in the editor. The footer shows the current folder, session, model, context usage, and accumulated usage and cost.
+The transcript shows your prompts, Pi's responses, tool calls, results, and errors. You write prompts and commands in the editor. The single-line footer shows the current folder and input/output token totals on the left, with context usage, model, and thinking level on the right. Extension statuses appear on the same line when space permits. Use `/session` for detailed usage and cost.
 
 ## Enter a prompt
 
@@ -26,7 +26,7 @@ Back in the prompt bar, `Enter` still sends the full pasted text and original fi
 
 ## Follow Pi's work
 
-Pi shows each tool call and result while it works. Press `Ctrl+O` to expand or collapse tool output. Press `Ctrl+T` to show or hide thinking blocks.
+Pi shows each tool call and result while it works. Leading icons identify tool actions and thinking blocks using your configured icon preset. Job and sub-agent blocks summarize actions and status instead of showing raw JSON; expand them to inspect full results. Press `Ctrl+O` to expand or collapse tool output. Press `Ctrl+T` to show or hide thinking blocks.
 
 The startup header lists the instructions and resources Pi loaded. The editor border indicates the current thinking level. The footer updates as the model uses context and reports usage.
 

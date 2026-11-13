@@ -1,6 +1,8 @@
 import { pathToFileURL } from "node:url";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { getCapabilities, getImageDimensions, hyperlink, imageFallback } from "@earendil-works/pi-tui";
+import { type FilePathKind, fileIconPrefix } from "../../modes/interactive/file-icons.ts";
+import { icon } from "../../modes/interactive/icons.ts";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../utils/ansi.ts";
 import { resolvePath, shortenHomePath } from "../../utils/paths.ts";
@@ -90,7 +92,7 @@ const COLLAPSED_ARGS_CHARS = 100;
  * line below the title, with strings shown raw and continuation lines indented.
  */
 export function formatToolCallWithArgs(title: string, args: unknown, theme: Theme, expanded: boolean): string {
-	const header = theme.fg("toolTitle", theme.bold(title));
+	const header = theme.fg("toolTitle", theme.bold(`${icon("tool")} ${title}`));
 	if (args == null) return header;
 	const entries =
 		typeof args === "object" && !Array.isArray(args)
@@ -171,10 +173,31 @@ export function renderToolPath(
 	rawPath: string | null,
 	theme: Theme,
 	cwd: string,
-	options?: { emptyFallback?: string },
+	options?: { emptyFallback?: string; kind?: FilePathKind; displayPath?: string },
 ): string {
 	if (rawPath === null) return invalidArgText(theme);
 	const value = rawPath || options?.emptyFallback;
 	if (!value) return theme.fg("toolOutput", "...");
-	return linkPath(theme.fg("accent", shortenPath(value)), value, cwd);
+	const label = theme.fg("accent", options?.displayPath ?? shortenPath(value));
+	if (/^[a-z][a-z\d+.-]*:\/\//i.test(value)) return label;
+	const prefix = fileIconPrefix(value, options?.kind);
+	return (prefix ? theme.fg("accent", prefix) : "") + linkPath(label, value, cwd);
+}
+
+/** Decorate only the path-listing block, leaving tool and retained-output notices untouched. */
+export function decoratePathListing(lines: readonly string[]): string[] {
+	let inListing = true;
+	return lines.map((line) => {
+		// Textual tool output is a parsing boundary: listing rows precede blank-separated notices.
+		if (!line) inListing = false;
+		if (
+			!inListing ||
+			line === "(empty directory)" ||
+			line === "No files found matching pattern" ||
+			/^\[(?:Full (?:captured )?output:|Truncated:|Showing )/.test(line)
+		) {
+			return line;
+		}
+		return fileIconPrefix(line) + line;
+	});
 }

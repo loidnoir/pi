@@ -8,6 +8,7 @@ import { openPane, type PaneHandle } from "../../core/panes/host.ts";
 import { getSessionRecovery } from "../../core/session-recovery.ts";
 import { discoverAgentDefinitions } from "../../core/subagents/definitions.ts";
 import { SubagentManager } from "../../core/subagents/manager.ts";
+import { renderSubagentMessage } from "../../core/subagents/render.ts";
 import { SubagentIdSchema, type SubagentResult } from "../../core/subagents/state.ts";
 import {
 	approveAgentDefinition,
@@ -143,6 +144,7 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 				});
 		}
 		pi.registerTool(createSubagentToolDefinition(getManager, agentDir, observe));
+		pi.registerMessageRenderer("subagent-result", renderSubagentMessage);
 
 		pi.registerCommand("agents", {
 			description:
