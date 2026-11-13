@@ -191,7 +191,6 @@ async function openRemotePane(
 	let width = 80;
 	let height = 24;
 	let stopped = false;
-	let hidden = options.minimized ?? false;
 	let renderScheduled = false;
 	let titleUpdates = Promise.resolve();
 	const sockets = new Set<Socket>();
@@ -204,25 +203,24 @@ async function openRemotePane(
 			if (pane) await closeRexPane(pane, ctx.cwd);
 		},
 		async show() {
-			hidden = false;
 			if (pane) await showRexPane(pane, ctx.cwd);
 			invalidate();
 		},
 		async minimize() {
 			if (!pane) return;
 			await setRexPaneMinimized(pane, true, ctx.cwd);
-			hidden = true;
 		},
 	};
 	const abort = () => {
 		void handle.close().catch((error: unknown) => ctx.ui.notify(String(error), "warning"));
 	};
 	function invalidate() {
-		if (stopped || hidden || renderScheduled) return;
+		// Rex can restore a minimized layer without notifying this host, so keep its viewer current.
+		if (stopped || renderScheduled) return;
 		renderScheduled = true;
 		setImmediate(() => {
 			renderScheduled = false;
-			if (!stopped && client && view && !hidden)
+			if (!stopped && client && view)
 				sendPacket(client, { type: "frame", lines: frame(ctx, options, view, width, height) });
 		});
 	}
@@ -322,7 +320,7 @@ async function openRemotePane(
 				cwd: ctx.cwd,
 				command: [invocation.executable, ...invocation.args, credentialPath],
 				placement: options.placement ?? "floating",
-				minimized: hidden,
+				minimized: options.minimized,
 			}).then((created) => {
 				pane = created;
 			}),

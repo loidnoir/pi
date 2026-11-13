@@ -109,7 +109,7 @@ describe("status indicators", () => {
 		try {
 			for (const status of ["pausing", "paused"] as const) {
 				indicator.setPauseStatus(status);
-				const label = `${icon("pause")}  ${status === "pausing" ? "Pausing…" : "Paused"}`;
+				const label = `${icon("pause")} ${status === "pausing" ? "Pausing…" : "Paused"}`;
 				expect(stripAnsi(indicator.render(80)[1]!)).toContain(label);
 				expect(stripAnsi(editor.render(80)[0]!)).toContain(label);
 				expect(vi.getTimerCount()).toBe(0);
@@ -123,7 +123,7 @@ describe("status indicators", () => {
 			}
 			setIconPreset(preset === "nerd" ? "unicode" : "nerd");
 			indicator.invalidate();
-			expect(stripAnsi(indicator.render(80)[1]!)).toContain(`${icon("pause")}  Paused`);
+			expect(stripAnsi(indicator.render(80)[1]!)).toContain(`${icon("pause")} Paused`);
 		} finally {
 			indicator.dispose();
 		}
@@ -168,7 +168,7 @@ describe("status indicators", () => {
 			for (const indicator of indicators) {
 				const before = stripAnsi(indicator.render(120)[1]!);
 				indicator.setPauseStatus("paused");
-				expect(stripAnsi(indicator.render(120)[1]!)).toContain(`${icon("pause")}  Paused`);
+				expect(stripAnsi(indicator.render(120)[1]!)).toContain(`${icon("pause")} Paused`);
 				indicator.setPauseStatus(undefined);
 				expect(stripAnsi(indicator.render(120)[1]!)).toBe(before);
 			}

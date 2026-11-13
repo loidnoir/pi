@@ -1,5 +1,5 @@
 import type { AutocompleteItem, AutocompleteProvider } from "@earendil-works/pi-tui";
-import { type IconName, icon } from "./icons.ts";
+import { type IconName, iconPrefix } from "./icons.ts";
 
 type CommandSource = "builtin" | "prompt" | "extension" | "skill";
 type CommandSources = Record<Exclude<CommandSource, "extension">, readonly { name: string }[]>;
@@ -40,6 +40,7 @@ const EXTENSION_ICONS = new Map<string, IconName>([
 	["llama", "model"],
 	["mcp", "tool"],
 	["pause", "pause"],
+	["tasks", "tasks"],
 ]);
 
 /** Decorate slash-command labels without changing matching or completion behavior. */
@@ -78,7 +79,7 @@ export function withSlashCommandIcons(provider: AutocompleteProvider, sources: C
 						...item,
 						// The editor retains suggestions while the picker is open; resolve the preset at render time.
 						get label() {
-							return `${icon(iconName)}  ${item.label}`;
+							return `${iconPrefix(iconName)}${item.label}`;
 						},
 					};
 					originalItems.set(decorated, item);

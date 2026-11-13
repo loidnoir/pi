@@ -2,7 +2,7 @@
 import { getCapabilities, Markdown, type MarkdownTheme, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { Marked, type Token } from "marked";
 import { stripAnsi } from "../../../utils/ansi.ts";
-import { type IconName, icon } from "../icons.ts";
+import { type IconName, iconPrefix } from "../icons.ts";
 import { theme } from "../theme/theme.ts";
 
 interface HeadingMetadata {
@@ -54,8 +54,8 @@ export class ThinkingMarkdown extends Markdown {
 
 	override render(width: number): string[] {
 		if (width <= 0) return [];
-		const iconWidth = Math.max(...HEADING_ICONS.map((name) => visibleWidth(icon(name))));
-		const gutterWidth = Math.min(this.outputPad + iconWidth + 2, width - 1);
+		const prefixWidth = Math.max(...HEADING_ICONS.map((name) => visibleWidth(iconPrefix(name))));
+		const gutterWidth = Math.min(this.outputPad + prefixWidth, width - 1);
 		const contentWidth = width - gutterWidth;
 		const markedHeadings: (HeadingMetadata | undefined)[] = [];
 		const lines = super.render(contentWidth).map((line, index) =>
@@ -78,7 +78,9 @@ export class ThinkingMarkdown extends Markdown {
 				headingIcon ??= "thinking";
 				firstContent = false;
 			}
-			const prefix = headingIcon ? `${" ".repeat(this.outputPad)}${icon(headingIcon)}  ` : " ".repeat(gutterWidth);
+			const prefix = headingIcon
+				? `${" ".repeat(this.outputPad)}${iconPrefix(headingIcon)}`
+				: " ".repeat(gutterWidth);
 			const gutter = truncateToWidth(theme.fg("thinkingText", prefix), gutterWidth, "");
 			return truncateToWidth(gutter + line, width, "");
 		});

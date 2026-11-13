@@ -107,15 +107,15 @@ describe("pause advisory checklist", () => {
 				"0 running sub-agents",
 				"0 running jobs",
 			])
-				expect(f.menu.render(120)).toContain(theme.fg("success", `${icon("checkboxChecked")}  ${text}`));
-			expect(f.text()).toContain(`${icon("pause")}  Session paused`);
-			expect(f.text()).toContain(`${icon("pause")}  Keep paused`);
+				expect(f.menu.render(120)).toContain(theme.fg("success", `${icon("checkboxChecked")} ${text}`));
+			expect(f.text()).toContain(`${icon("pause")} Session paused`);
+			expect(f.text()).toContain(`${icon("pause")} Keep paused`);
 			expect(f.text()).toContain("Safe to leave paused.");
 			for (const width of [1, 3, 12, 30, 80])
 				expect(f.menu.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
 			setIconPreset(preset === "nerd" ? "unicode" : "nerd");
 			f.menu.invalidate();
-			expect(f.text()).toContain(`${icon("checkboxChecked")}  0 running jobs`);
+			expect(f.text()).toContain(`${icon("checkboxChecked")} 0 running jobs`);
 		},
 	);
 
@@ -124,7 +124,7 @@ describe("pause advisory checklist", () => {
 		f.children(["running", "running", "queued", "paused", "completed"]);
 		await Promise.resolve();
 		for (const text of ["1 active model response", "2 running tool calls", "2 running sub-agents · 1 queued"])
-			expect(f.menu.render(120)).toContain(theme.fg("warning", `${icon("checkboxUnchecked")}  ${text}`));
+			expect(f.menu.render(120)).toContain(theme.fg("warning", `${icon("checkboxUnchecked")} ${text}`));
 		expect(f.text()).not.toContain("Safe to");
 		f.menu.handleInput("\r");
 		expect(f.done).toHaveBeenLastCalledWith("continue");
@@ -140,7 +140,7 @@ describe("pause advisory checklist", () => {
 			job({ state: "completed", startedAt: 0, endedAt: 1, exitCode: 0 }),
 		]);
 		await vi.advanceTimersByTimeAsync(2000);
-		expect(f.menu.render(120)).toContain(theme.fg("warning", `${icon("checkboxUnchecked")}  2 running jobs`));
+		expect(f.menu.render(120)).toContain(theme.fg("warning", `${icon("checkboxUnchecked")} 2 running jobs`));
 		f.jobs.mockResolvedValue([
 			job({ state: "unreachable", startedAt: 0, error: "offline" }),
 			job({ state: "lost", startedAt: 0, error: "lost" }),
@@ -157,7 +157,7 @@ describe("pause advisory checklist", () => {
 		f.jobs.mockRejectedValue(new Error("catalog unreadable"));
 		await vi.advanceTimersByTimeAsync(2000);
 		for (const text of ["Sub-agent activity unknown", "Job activity unknown"])
-			expect(f.menu.render(120)).toContain(theme.fg("warning", `${icon("checkboxUnchecked")}  ${text}`));
+			expect(f.menu.render(120)).toContain(theme.fg("warning", `${icon("checkboxUnchecked")} ${text}`));
 		expect(f.text()).not.toContain("0 running sub-agents");
 		expect(f.text()).not.toContain("0 running jobs");
 		expect(f.text()).not.toContain("Safe to");

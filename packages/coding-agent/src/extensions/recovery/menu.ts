@@ -4,7 +4,7 @@ import type { JobInfo } from "../../core/jobs/state.ts";
 import type { SessionRecovery } from "../../core/session-recovery.ts";
 import type { SubagentActivity } from "../../core/subagents/activity.ts";
 import { keyText } from "../../modes/interactive/components/keybinding-hints.ts";
-import { icon } from "../../modes/interactive/icons.ts";
+import { iconPrefix } from "../../modes/interactive/icons.ts";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../utils/ansi.ts";
 import { sanitizeBinaryOutput } from "../../utils/shell.ts";
@@ -86,7 +86,7 @@ export class RecoveryMenu implements Component {
 		const lines = [
 			"",
 			theme.bold(
-				`${icon("pause")}  ${this.recovering ? "Interrupted session" : info.status === "paused" ? "Session paused" : "Pausing session…"}`,
+				`${iconPrefix("pause")}${this.recovering ? "Interrupted session" : info.status === "paused" ? "Session paused" : "Pausing session…"}`,
 			),
 		];
 		if (this.recovering) {
@@ -130,7 +130,7 @@ export class RecoveryMenu implements Component {
 				lines.push(
 					theme.fg(
 						row.idle ? "success" : "warning",
-						`${icon(row.idle ? "checkboxChecked" : "checkboxUnchecked")}  ${row.text}`,
+						`${iconPrefix(row.idle ? "checkboxChecked" : "checkboxUnchecked")}${row.text}`,
 					),
 				);
 			lines.push(
@@ -148,7 +148,7 @@ export class RecoveryMenu implements Component {
 		lines.push("");
 		const choices = [
 			this.recovering ? "Continue saved work" : "Continue",
-			`${icon("pause")}  Keep paused`,
+			`${iconPrefix("pause")}Keep paused`,
 			...(this.recovering ? ["Discard pending work (keep history)"] : []),
 		];
 		for (const [index, choice] of choices.entries())

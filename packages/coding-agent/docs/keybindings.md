@@ -162,10 +162,22 @@ On native Windows, `app.suspend` has no default because Windows terminals do not
 
 | Keybinding id | Default | Description |
 |--------|---------|-------------|
-| `app.tools.expand` | `ctrl+o` | Collapse or expand tool output |
+| `app.tools.expand` | `ctrl+o` | Collapse or expand tool output and sent-message images |
 | `app.message.copy` | `ctrl+x` | Copy the selected message in `/tree`; in fullscreen mode, copy the active selection when `fullscreenCopyOnSelect` is `false`; otherwise open a picker for code blocks, quotes, or the whole last assistant message. On OAuth sign-in screens, copy the sign-in URL |
 | `app.message.followUp` | `alt+enter` (`ctrl+q` on Windows and WSL) | Queue follow-up message |
 | `app.message.dequeue` | `alt+up` (`alt+q` on Windows and WSL) | Restore queued messages to editor |
+
+### Tasks
+
+Used for the pinned task tree above the editor; these do not replace the editor's input or scrolling actions.
+
+| Keybinding id | Default | Description |
+|---|---|---|
+| `app.tasks.expand` | `f3` | Expand or collapse the retained task list |
+| `app.tasks.pageUp` | `alt+pageUp` | Scroll the expanded task list up |
+| `app.tasks.pageDown` | `alt+pageDown` | Scroll the expanded task list down |
+
+The `/tasks` pane uses `tui.select.up`/`down` and `tui.select.pageUp`/`pageDown` to scroll, `tui.select.cancel` to close, and `app.pane.minimize` to minimize shared Rex views.
 
 ### Tree Navigation
 

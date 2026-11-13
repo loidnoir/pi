@@ -2,11 +2,16 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, getCurrentTools } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionContext } from "../../src/core/extensions/types.ts";
+import { openPane, type PaneHandle } from "../../src/core/panes/host.ts";
 import { SideChatView } from "../../src/core/panes/side-chat.ts";
 import { createSideSession } from "../../src/core/side-session.ts";
+import { createBtwExtension } from "../../src/extensions/btw/index.ts";
+import { iconPrefix, setIconPreset } from "../../src/modes/interactive/icons.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
+
+vi.mock("../../src/core/panes/host.ts", () => ({ openPane: vi.fn() }));
 
 const harnesses: Harness[] = [];
 const agents: Agent[] = [];
@@ -16,6 +21,8 @@ afterEach(async () => {
 		await agent.waitForIdle();
 	}
 	for (const harness of harnesses.splice(0)) harness.cleanup();
+	setIconPreset("unicode");
+	vi.mocked(openPane).mockReset();
 });
 
 async function sideContext(): Promise<{ harness: Harness; context: ExtensionContext }> {
@@ -36,6 +43,49 @@ async function sideContext(): Promise<{ harness: Harness; context: ExtensionCont
 }
 
 describe("temporary read-only side conversations", () => {
+	it("formats each new /btw pane title through the live shared prefix without a model call", async () => {
+		const panes: PaneHandle[] = [];
+		vi.mocked(openPane).mockImplementation(async (_ctx, options) => {
+			const closed = Promise.withResolvers<void>();
+			const view = options.create({ invalidate() {}, close() {}, async minimize() {}, async setTitle() {} });
+			const handle: PaneHandle = {
+				backend: "tui",
+				placement: undefined,
+				closed: closed.promise,
+				async close() {
+					await view.dispose();
+					closed.resolve();
+				},
+				async show() {},
+				async minimize() {},
+			};
+			panes.push(handle);
+			return handle;
+		});
+		const harness = await createHarness({ extensionFactories: [createBtwExtension()] });
+		harnesses.push(harness);
+		harness.setResponses([
+			() => {
+				throw new Error("Opening an empty side pane must not call a model");
+			},
+		]);
+		await harness.session.bindExtensions({});
+		const before = JSON.stringify(harness.sessionManager.getEntries());
+		for (const preset of ["nerd", "unicode"] as const) {
+			setIconPreset(preset);
+			await harness.session.prompt("/btw");
+			try {
+				expect(vi.mocked(openPane).mock.calls.at(-1)?.[1].title).toBe(
+					`${iconPrefix("chat")}btw — temporary read-only conversation`,
+				);
+			} finally {
+				await panes.pop()!.close();
+			}
+		}
+		expect(openPane).toHaveBeenCalledTimes(2);
+		expect(JSON.stringify(harness.sessionManager.getEntries())).toBe(before);
+	});
+
 	it("inherits main context, reads files and rejects write/bash without changing main history", async () => {
 		const { harness, context } = await sideContext();
 		harness.setResponses([fauxAssistantMessage("Main answer")]);

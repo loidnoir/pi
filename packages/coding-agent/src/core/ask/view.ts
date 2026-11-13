@@ -14,7 +14,7 @@ import {
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { icon } from "../../modes/interactive/icons.ts";
+import { iconPrefix } from "../../modes/interactive/icons.ts";
 import { getEditorTheme, getMarkdownTheme, theme } from "../../modes/interactive/theme/theme.ts";
 import type { Keybinding, KeybindingsManager } from "../keybindings.ts";
 import {
@@ -295,7 +295,7 @@ export class QuestionFormView implements Focusable {
 			body.length > this.height
 				? ` · ${this.offset + 1}–${Math.min(body.length, this.offset + this.height)}/${body.length}`
 				: "";
-		const header = theme.fg("accent", `‹ ${icon("question")} Ask · ${next}${scroll} ›`);
+		const header = theme.fg("accent", `‹ ${iconPrefix("question")}Ask · ${next}${scroll} ›`);
 		const visible = body.slice(this.offset, this.offset + this.height);
 		this.bodyStart = 1 + headerGap.length;
 		this.renderedBodyHeight = visible.length;
@@ -343,9 +343,9 @@ export class QuestionFormView implements Focusable {
 						: this.values[this.page].selected.has(index);
 				const focused = index === this.choice;
 				const marker = field.multiple
-					? icon(selected ? "checkboxChecked" : "checkboxUnchecked")
-					: icon(selected ? "radioChecked" : "radioUnchecked");
-				const prefix = `${theme.fg("accent", focused ? "› " : "  ")}${theme.fg(selected ? "success" : "dim", marker)} `;
+					? iconPrefix(selected ? "checkboxChecked" : "checkboxUnchecked")
+					: iconPrefix(selected ? "radioChecked" : "radioUnchecked");
+				const prefix = `${theme.fg("accent", focused ? "› " : "  ")}${theme.fg(selected ? "success" : "dim", marker)}`;
 				const label = field.options[index]?.label ?? "Other (type your own)";
 				body.push(
 					...this.wrapMarkdown(
@@ -431,7 +431,7 @@ export class QuestionFormView implements Focusable {
 			);
 		const review = this.page === this.form.fields.length;
 		const next = this.page === this.form.fields.length - 1 ? "Review answers" : "Next question";
-		const button = review ? `[ ${icon("submit")} Submit answers ]` : `[ ${next} ]`;
+		const button = review ? `[ ${iconPrefix("submit")}Submit answers ]` : `[ ${next} ]`;
 		const start = lines.length;
 		lines.push(
 			...this.wrapLabel(theme.bold(theme.fg("accent", button)), width).slice(0, Math.min(2, budget - start)),

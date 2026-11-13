@@ -169,7 +169,7 @@ describe("AssistantMessageComponent", () => {
 		);
 		expect(component.render(80).map((line) => stripAnsi(line).trim())).toEqual([
 			"",
-			`${icon("thinking")}  Thinking...`,
+			`${icon("thinking")} Thinking...`,
 			"",
 			"answer",
 		]);
@@ -231,7 +231,7 @@ describe("AssistantMessageComponent", () => {
 		component.setOutputPad(0);
 		const updatedLines = component.render(80).map((line) => stripAnsi(line));
 		expect(updatedLines.some((line) => line.startsWith("hello"))).toBe(true);
-		expect(updatedLines.some((line) => line.startsWith(`${icon("thinking")}  reasoning`))).toBe(true);
+		expect(updatedLines.some((line) => line.startsWith(`${icon("thinking")} reasoning`))).toBe(true);
 	});
 
 	test("updates reasoning icons with the preset without changing Markdown source", () => {
@@ -251,7 +251,7 @@ describe("AssistantMessageComponent", () => {
 		expect(stripAnsi(component.render(80).join("\n"))).toContain(icon("thinking"));
 		setIconPreset("unicode");
 		component.invalidate();
-		expect(stripAnsi(component.render(80).join("\n"))).toContain(`${icon("thinking")}  Inspecting`);
+		expect(stripAnsi(component.render(80).join("\n"))).toContain(`${icon("thinking")} Inspecting`);
 		expect(sources.every((source) => source === "# Inspecting the renderer\n\nNext step")).toBe(true);
 		expect(message.content).toEqual([{ type: "thinking", thinking: "# Inspecting the renderer\n\nNext step" }]);
 	});
@@ -269,7 +269,7 @@ describe("AssistantMessageComponent", () => {
 		const message = createAssistantMessage([{ type: "thinking", thinking }]);
 		const component = new AssistantMessageComponent(message);
 		const rendered = stripAnsi(component.render(80).join("\n"));
-		expect(rendered).toContain(`${icon("clock")}  `);
+		expect(rendered).toContain(`${icon("clock")} `);
 		expect(rendered).not.toContain(icon("thinking"));
 		expect(message.content).toEqual([{ type: "thinking", thinking }]);
 	});
@@ -282,7 +282,7 @@ describe("AssistantMessageComponent", () => {
 		initTheme("dark");
 		const component = new AssistantMessageComponent(createAssistantMessage([{ type: "thinking", thinking }]), true);
 		const rendered = stripAnsi(component.render(80).join("\n"));
-		expect(rendered).toContain(`${icon(name)}  Thinking...`);
+		expect(rendered).toContain(`${icon(name)} Thinking...`);
 		expect(rendered).not.toContain(thinking);
 	});
 
@@ -305,7 +305,7 @@ describe("AssistantMessageComponent", () => {
 		const component = new AssistantMessageComponent(message, false, undefined, "Thinking...", 1, [
 			(markdown, context) => {
 				expect(context.messageType).toBe("assistant-thinking");
-				expect(context.availableWidth).toBe(76);
+				expect(context.availableWidth).toBe(77);
 				sources.push(markdown);
 				return markdown;
 			},
@@ -322,7 +322,7 @@ describe("AssistantMessageComponent", () => {
 			["read", "Checking"],
 			["clock", "Awaiting"],
 		] as const)
-			expect(rendered).toContain(`${icon(name)}  ${text}`);
+			expect(rendered).toContain(`${icon(name)} ${text}`);
 		expect(sources).toEqual([thinking]);
 		expect(message.content).toEqual([{ type: "thinking", thinking }]);
 	});

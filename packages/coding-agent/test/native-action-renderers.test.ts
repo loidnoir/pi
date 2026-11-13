@@ -106,7 +106,7 @@ describe("sub-agent presentation", () => {
 		const args = { action: "wait", id };
 		const before = JSON.stringify(args);
 		const component = renderSubagentCall(args, theme, context(args));
-		expect(text(component)).toContain(`${icon("clock")}  Wait for sub-agent`);
+		expect(text(component)).toContain(`${icon("clock")} Wait for sub-agent`);
 		for (const line of component.render(20)) expect(visibleWidth(line)).toBeLessThanOrEqual(20);
 		expect(JSON.stringify(args)).toBe(before);
 	});
@@ -233,6 +233,23 @@ describe("sub-agent presentation", () => {
 });
 
 describe("job presentation", () => {
+	it.each(["list", "inspect", "logs", "stop", "rename", "restart", "delete"])(
+		"reserves optical room in live %s headers without changing arguments",
+		(action) => {
+			const args = { action, id, name: "日本語 checks" };
+			const before = structuredClone(args);
+			const component = renderJobsCall(args, theme, context(args));
+			for (const preset of ["nerd", "unicode", "nerd"] as const) {
+				setIconPreset(preset);
+				component.invalidate();
+				expect(text(component).startsWith(`${icon("job")}${preset === "nerd" ? "  " : " "}`)).toBe(true);
+				for (const width of [0, 1, 2, 3, 8, 30])
+					for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+			}
+			expect(args).toEqual(before);
+		},
+	);
+
 	it.each([
 		["list", "List jobs"],
 		["inspect", "Inspect job"],
@@ -393,7 +410,7 @@ describe("native action section spacing", () => {
 				agent: { ...agent, status: "queued", label: "Review parser behavior", preview: "" },
 				notice: "Submitted; this is not a completion result.",
 			},
-			title: () => `${icon("agent")}  Start sub-agent · worker`,
+			title: () => `${icon("agent")} Start sub-agent · worker`,
 			description: "Review parser behavior",
 			status: "Queued · worker 12345678 · Review parser behavior",
 			preview: "Submitted; this is not a completion result.",
@@ -404,7 +421,7 @@ describe("native action section spacing", () => {
 			result: renderJobsResult,
 			args: { action: "restart", id, command: "node test.js" },
 			value: { job: { ...job, command: "node test.js", runtime: { state: "starting" } } },
-			title: () => `${icon("job")}  Restart job · 12345678`,
+			title: () => `${icon("job")} Restart job · 12345678`,
 			description: "node test.js",
 			status: "Starting · 12345678 · Type check",
 			preview: "node test.js",
@@ -566,22 +583,26 @@ describe("automatic completion presentation", () => {
 		expect(rendered).toContain("Error: Provider unavailable");
 	});
 
-	it("shows job state, name and output location without claiming completion", () => {
-		const notice = message(jobContent, "background-job", { jobId: id, state: "failed" });
-		const before = JSON.stringify(notice);
-		const rendered = text(renderJobMessage(notice, messageOptions(), theme)!);
-		expect(rendered).toContain("Job 12345678 · Failed · Renderer checks");
-		expect(rendered).toContain("Full output: /tmp/job.log");
-		expect(rendered.split("\n").map((line) => line.trim())).toEqual([
-			`${icon("job")}  Job 12345678 · Failed · Renderer checks`,
-			"",
-			"Full output: /tmp/job.log",
-			"alt+e to expand",
-		]);
-		expect(rendered).not.toContain("Completed");
-		expect(text(renderJobMessage(notice, messageOptions(true), theme)!)).toContain(jobContent);
-		expect(JSON.stringify(notice)).toBe(before);
-	});
+	it.each(["unicode", "nerd"] as const)(
+		"shows job state, name and output location without claiming completion (%s)",
+		(preset) => {
+			setIconPreset(preset);
+			const notice = message(jobContent, "background-job", { jobId: id, state: "failed" });
+			const before = JSON.stringify(notice);
+			const rendered = text(renderJobMessage(notice, messageOptions(), theme)!);
+			expect(rendered).toContain("Job 12345678 · Failed · Renderer checks");
+			expect(rendered).toContain("Full output: /tmp/job.log");
+			expect(rendered.split("\n").map((line) => line.trim())).toEqual([
+				`${icon("job")}${preset === "nerd" ? "  " : " "}Job 12345678 · Failed · Renderer checks`,
+				"",
+				"Full output: /tmp/job.log",
+				"alt+e to expand",
+			]);
+			expect(rendered).not.toContain("Completed");
+			expect(text(renderJobMessage(notice, messageOptions(true), theme)!)).toContain(jobContent);
+			expect(JSON.stringify(notice)).toBe(before);
+		},
+	);
 
 	it.each([renderSubagentMessage, renderJobMessage])(
 		"handles empty or unfamiliar notices and refreshes icons",

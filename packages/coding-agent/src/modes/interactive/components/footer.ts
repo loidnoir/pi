@@ -5,7 +5,7 @@ import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ContextUsage } from "../../../core/extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
 import { addUsageToTotals, createUsageTotals, type UsageTotals } from "../../../core/usage-totals.ts";
-import { icon } from "../icons.ts";
+import { icon, iconPrefix } from "../icons.ts";
 import { theme } from "../theme/theme.ts";
 
 /**
@@ -59,7 +59,6 @@ interface SessionStats {
  * Computes usage from the session and includes extension statuses when space permits.
  */
 export class FooterComponent implements Component {
-	private autoCompactEnabled = true;
 	private session: AgentSession;
 	private footerData: ReadonlyFooterDataProvider;
 	private sessionStats?: SessionStats;
@@ -71,10 +70,6 @@ export class FooterComponent implements Component {
 
 	setSession(session: AgentSession): void {
 		this.session = session;
-	}
-
-	setAutoCompactEnabled(enabled: boolean): void {
-		this.autoCompactEnabled = enabled;
 	}
 
 	invalidate(): void {
@@ -146,28 +141,28 @@ export class FooterComponent implements Component {
 		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
 		const contextPercentValue = contextUsage?.percent ?? 0;
 		const contextPercent = contextUsage?.percent !== null ? `${contextPercentValue.toFixed(1)}%` : "?";
-		const autoIndicator = this.autoCompactEnabled ? " (auto)" : "";
-		const contextDisplay = `${contextPercent}/${formatTokens(contextWindow)}${autoIndicator}`;
+		const contextDisplay = `${contextPercent}/${formatTokens(contextWindow)}`;
 		const contextColor = contextPercentValue > 90 ? "error" : contextPercentValue > 70 ? "warning" : "dim";
+		const separator = " • ";
 		const rightParts = [theme.fg(contextColor, contextDisplay)];
 		if (areExperimentalFeaturesEnabled()) {
-			rightParts.push(`${theme.fg("dim", "•")} ${theme.bold(theme.fg("warning", "xp"))}`);
+			rightParts.push(theme.bold(theme.fg("warning", "xp")));
 		}
 
 		const extensionStatuses = this.footerData.getExtensionStatuses();
 		const fastActive = extensionStatuses.get("fast") === "fast (priority)";
-		const fastPrefix = fastActive ? `${icon("fast")}  ` : "";
+		const fastPrefix = fastActive ? iconPrefix("fast") : "";
 		const routed = this.session.routedModel;
 		let modelDisplay = sanitizeStatusText(state.model?.id || "no-model");
 		if (state.model?.reasoning) {
 			const thinkingLevel = state.thinkingLevel || "off";
 			const thinking = thinkingLevel === "off" ? "thinking off" : thinkingLevel;
-			modelDisplay += ` • ${routed ? "" : fastPrefix}${thinking}`;
+			modelDisplay += `${separator}${routed ? "" : fastPrefix}${thinking}`;
 		} else if (!routed && fastActive) modelDisplay += ` ${icon("fast")}`;
 		// A virtual model routes each request; show where the latest response went.
 		if (routed) {
 			const level = routed.thinkingLevel
-				? ` • ${fastPrefix}${routed.thinkingLevel}`
+				? `${separator}${fastPrefix}${routed.thinkingLevel}`
 				: fastActive
 					? ` ${icon("fast")}`
 					: "";
@@ -184,7 +179,8 @@ export class FooterComponent implements Component {
 		const leftContentWidth = visibleWidth(pwd) + 1 + tokensWidth;
 		if (this.footerData.getAvailableProviderCount() > 1 && state.model) {
 			const withProvider = `(${sanitizeStatusText(state.model.provider)}) ${modelDisplay}`;
-			const rightContentWidth = visibleWidth(rightParts.join(" ")) + 1 + visibleWidth(withProvider);
+			const rightContentWidth =
+				visibleWidth(rightParts.join(separator)) + visibleWidth(separator) + visibleWidth(withProvider);
 			if (leftContentWidth + minPadding + rightContentWidth <= width) {
 				modelDisplay = withProvider;
 			}
@@ -192,7 +188,11 @@ export class FooterComponent implements Component {
 		rightParts.push(theme.fg("dim", modelDisplay));
 		// A long directory must not push all context/model information off the line.
 		const reservedLeft = Math.min(leftContentWidth, Math.floor(width / 2));
-		const right = truncateToWidth(rightParts.join(" "), Math.max(0, width - reservedLeft - minPadding), ellipsis);
+		const right = truncateToWidth(
+			rightParts.join(theme.fg("dim", separator)),
+			Math.max(0, width - reservedLeft - minPadding),
+			ellipsis,
+		);
 		const rightWidth = visibleWidth(right);
 		const leftWidth = rightWidth > 0 ? width - rightWidth - minPadding : width;
 		const pwdWidth = leftWidth - tokensWidth - 1;
@@ -207,7 +207,7 @@ export class FooterComponent implements Component {
 			const statuses = Array.from(extensionStatuses.entries())
 				.filter(([key]) => key !== "fast" || !fastActive)
 				.sort(([a], [b]) => a.localeCompare(b))
-				.map(([key, text]) => `${key === "recovery" ? `${icon("pause")}  ` : ""}${sanitizeStatusText(text)}`)
+				.map(([key, text]) => `${key === "recovery" ? iconPrefix("pause") : ""}${sanitizeStatusText(text)}`)
 				.join(" ");
 			if (statuses) left += ` ${truncateToWidth(statuses, statusWidth, ellipsis)}`;
 		}

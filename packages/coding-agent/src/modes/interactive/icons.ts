@@ -9,6 +9,7 @@ export type IconName =
 	| "radioUnchecked"
 	| "checkboxChecked"
 	| "checkboxUnchecked"
+	| "checkboxCancelled"
 	| "submit"
 	| "agent"
 	| "agentWorker"
@@ -27,6 +28,7 @@ export type IconName =
 	| "terminal"
 	| "skill"
 	| "job"
+	| "tasks"
 	| "tool"
 	| "settings"
 	| "model"
@@ -62,6 +64,7 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		radioUnchecked: "( )",
 		checkboxChecked: "[x]",
 		checkboxUnchecked: "[ ]",
+		checkboxCancelled: "[-]",
 		submit: "↵",
 		agent: "@",
 		agentWorker: "</>",
@@ -80,6 +83,7 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		terminal: ">_",
 		skill: "✦",
 		job: "⚙",
+		tasks: "≡",
 		tool: "⚒",
 		settings: "⚙",
 		model: "◈",
@@ -114,6 +118,7 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		radioUnchecked: "\uf10c",
 		checkboxChecked: "\uf14a",
 		checkboxUnchecked: "\uf096",
+		checkboxCancelled: "\uf146",
 		submit: "\uf1d8",
 		agent: "\uf007",
 		agentWorker: "\uf0ad",
@@ -132,6 +137,7 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		terminal: "\uf120",
 		skill: "\uf0d0",
 		job: "\uf085",
+		tasks: "\uf0ae",
 		tool: "\uf0ad",
 		settings: "\uf013",
 		model: "\uf1b2",
@@ -169,6 +175,20 @@ export function getIconPreset(): IconPreset {
 /** Return an uncolored icon using the interactive harness's current preset. */
 export function icon(name: IconName): string {
 	return ICONS[getIconPreset()][name];
+}
+
+// These Nerd glyphs overhang into the label gap; reserve optical room without changing terminal widths.
+const OPTICAL_RESERVE_GLYPHS = new Set(["\uf085", "\uf0e8", "\uf11c", "\uf120"]);
+
+/** Add one label separator, with an extra optical column for overhanging Nerd glyphs. */
+export function glyphPrefix(glyph: string): string {
+	if (!glyph) return "";
+	return glyph + (OPTICAL_RESERVE_GLYPHS.has(glyph) ? "  " : " ");
+}
+
+/** Return a live semantic icon with its optical reservation and label separator. */
+export function iconPrefix(name: IconName): string {
+	return glyphPrefix(icon(name));
 }
 
 /** Apply the configured icon preset to all interactive components and extension module loaders. */

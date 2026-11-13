@@ -3,7 +3,7 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { contentText } from "@earendil-works/pi-ai";
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
-import { icon } from "../../modes/interactive/icons.ts";
+import { iconPrefix } from "../../modes/interactive/icons.ts";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import type { MessageRenderer, ToolRenderContext, ToolRenderResultOptions } from "../extensions/types.ts";
 import {
@@ -65,7 +65,7 @@ export function renderJobsCall(args: unknown, theme: Theme, context: ToolRenderC
 	return actionBlock(context, () => ({
 		kind: "call",
 		heading:
-			theme.fg("toolTitle", theme.bold(`${icon("job")}  ${labels[input.action ?? ""] ?? "Jobs"}`)) +
+			theme.fg("toolTitle", theme.bold(`${iconPrefix("job")}${labels[input.action ?? ""] ?? "Jobs"}`)) +
 			theme.fg("accent", input.id ? ` · ${input.id.slice(0, 8)}` : input.all ? " · all projects" : ""),
 		preview:
 			input.name || input.command ? theme.fg("muted", compactPreview(input.name ?? input.command ?? "")) : undefined,
@@ -115,7 +115,7 @@ export const renderJobMessage: MessageRenderer = (message, options, theme) => {
 			heading:
 				theme.fg(
 					"customMessageLabel",
-					theme.bold(`${icon("job")}  Job${notice ? ` ${notice[1].slice(0, 8)}` : ""}`),
+					theme.bold(`${iconPrefix("job")}Job${notice ? ` ${notice[1].slice(0, 8)}` : ""}`),
 				) +
 				theme.fg(stateColor(status), ` · ${stateLabel(status)}`) +
 				(name ? theme.fg("muted", ` · ${compactPreview(name)}`) : ""),

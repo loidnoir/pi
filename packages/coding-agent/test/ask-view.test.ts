@@ -13,7 +13,7 @@ import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import { parseQuestionForm } from "../src/core/ask/form.ts";
 import { type FormResult, QuestionFormView } from "../src/core/ask/view.ts";
 import { type KeybindingsConfig, KeybindingsManager } from "../src/core/keybindings.ts";
-import { icon, setIconPreset } from "../src/modes/interactive/icons.ts";
+import { icon, iconPrefix, setIconPreset } from "../src/modes/interactive/icons.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 
 const views: QuestionFormView[] = [];
@@ -83,9 +83,26 @@ describe("question form presentation", () => {
 		expect(lines[divider + 1]).toBe("[ Review answers ]");
 		expect(lines.join("\n")).toContain("enter choose & review");
 		expect(lines.join("\n")).not.toContain("Answers are not submitted yet");
-		expect(rendered[preview]).toContain(theme.fg("success", icon("radioChecked")));
-		expect(rendered[production]).toContain(theme.fg("dim", icon("radioUnchecked")));
+		expect(rendered[preview]).toContain(theme.fg("success", iconPrefix("radioChecked")));
+		expect(rendered[production]).toContain(theme.fg("dim", iconPrefix("radioUnchecked")));
 		expect(done).not.toHaveBeenCalled();
+	});
+
+	it("composes live form header, choices and submission prefixes before styling", () => {
+		const { view } = fixture();
+		for (const preset of ["nerd", "unicode", "nerd"] as const) {
+			setIconPreset(preset);
+			const rendered = view.render(80, 30);
+			expect(rendered[0]).toBe(theme.fg("accent", `‹ ${iconPrefix("question")}Ask · Question 1/1 ›`));
+			expect(rendered.join("\n")).toContain(theme.fg("success", iconPrefix("radioChecked")));
+		}
+		view.handleInput("\t");
+		for (const preset of ["nerd", "unicode"] as const) {
+			setIconPreset(preset);
+			expect(view.render(80, 30).join("\n")).toContain(
+				theme.bold(theme.fg("accent", `[ ${iconPrefix("submit")}Submit answers ]`)),
+			);
+		}
 	});
 
 	it("distinguishes next-question navigation from actual submission", () => {
@@ -128,7 +145,7 @@ describe("question form presentation", () => {
 			const lines = plain(rendered);
 			const first = lines.findIndex((line) => line.includes("Use bold"));
 			const last = lines.findIndex((line) => line.includes("safely"));
-			const indent = " ".repeat(3 + visibleWidth(icon("radioChecked")));
+			const indent = " ".repeat(visibleWidth(`› ${iconPrefix("radioChecked")}`));
 			expect(first).toBeGreaterThan(0);
 			expect(last).toBeGreaterThan(first);
 			for (const line of lines.slice(first + 1, last + 1)) expect(line.startsWith(indent)).toBe(true);

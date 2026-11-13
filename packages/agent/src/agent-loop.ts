@@ -32,7 +32,11 @@ import type {
 	StreamFn,
 } from "./types.ts";
 
-export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
+/**
+ * Input message_end events supply `commit`. State-owning sinks call it once after appending,
+ * before awaited observers can fail. Sinks without state may ignore it; successful dispatch commits.
+ */
+export type AgentEventSink = (event: AgentEvent, commit?: () => void) => Promise<void> | void;
 
 /**
  * Request identity of agent loops: pi-ai's defaults with provider attribution to pi. `AgentLoopConfig.identity`
@@ -117,18 +121,18 @@ export async function runAgentLoop(
 	streamFn: StreamFn,
 ): Promise<AgentMessage[]> {
 	const initialMessages = declareToolChanges(context, prompts);
-	const newMessages: AgentMessage[] = [...initialMessages];
+	const newMessages: AgentMessage[] = [];
 	const currentContext: AgentContext = {
 		...context,
-		messages: [...context.messages, ...initialMessages],
+		messages: [...context.messages],
 	};
 
 	await emit({ type: "agent_start" });
 	await emit({ type: "turn_start" });
-	for (const message of initialMessages) {
-		await emit({ type: "message_start", message });
-		await emit({ type: "message_end", message });
-	}
+	// Starting prompts are already accepted; an abort still records them in the transcript.
+	await appendInputMessages(prompts, initialMessages, currentContext, newMessages, undefined, emit, (index) =>
+		config.onInputMessageCommitted?.(prompts, index),
+	);
 
 	await runLoop(currentContext, newMessages, config, signal, emit, streamFn ?? getDefaultStreamFn());
 	return newMessages;
@@ -217,12 +221,20 @@ async function runLoop(
 			}
 
 			// Process prepared and queued messages before the next assistant response.
-			for (const message of declareToolChanges(currentContext, [...preparedMessages, ...pendingMessages])) {
-				await emit({ type: "message_start", message });
-				await emit({ type: "message_end", message });
-				currentContext.messages.push(message);
-				newMessages.push(message);
-			}
+			const inputs = [...preparedMessages, ...pendingMessages];
+			await appendInputMessages(
+				inputs,
+				declareToolChanges(currentContext, inputs),
+				currentContext,
+				newMessages,
+				signal,
+				emit,
+				(index) => {
+					if (index >= preparedMessages.length) {
+						config.onInputMessageCommitted?.(pendingMessages, index - preparedMessages.length);
+					}
+				},
+			);
 			pendingMessages = [];
 
 			const requestUpdate = await config.prepareRequest?.(
@@ -327,6 +339,37 @@ async function runLoop(
 	}
 
 	await emit({ type: "agent_end", messages: newMessages });
+}
+
+/** Emit and commit inputs only after preparation succeeds, preserving their queue identities. */
+async function appendInputMessages(
+	inputs: AgentMessage[],
+	declaredMessages: AgentMessage[],
+	context: AgentContext,
+	newMessages: AgentMessage[],
+	signal: AbortSignal | undefined,
+	emit: AgentEventSink,
+	commitInput: (inputIndex: number) => void,
+): Promise<void> {
+	let inputIndex = 0;
+	for (const message of declaredMessages) {
+		signal?.throwIfAborted();
+		await emit({ type: "message_start", message });
+		let committed = false;
+		const commit = () => {
+			committed = true;
+			context.messages.push(message);
+			newMessages.push(message);
+			const input = inputs[inputIndex];
+			// Rewritten system messages keep their position; an inserted tool patch has no input to commit.
+			if (input && (message === input || (message.role === "system" && input.role === "system"))) {
+				commitInput(inputIndex++);
+			}
+		};
+		await emit({ type: "message_end", message }, commit);
+		// Streaming-only sinks have no state commit callback; successful dispatch commits their input.
+		if (!committed) commit();
+	}
 }
 
 /**

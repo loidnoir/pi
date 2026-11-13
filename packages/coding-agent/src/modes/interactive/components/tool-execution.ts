@@ -17,7 +17,7 @@ export type { ToolRenderers };
 
 import { formatToolCallWithArgs, getTextOutput as getRenderedTextOutput } from "../../../core/tools/render-utils.ts";
 import { ensurePngTranscoder } from "../../../utils/image-convert.ts";
-import { icon } from "../icons.ts";
+import { iconPrefix } from "../icons.ts";
 import { theme } from "../theme/theme.ts";
 import { keyHint, keyText } from "./keybinding-hints.ts";
 
@@ -406,7 +406,7 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private formatToolExecution(): string {
-		let text = theme.fg("toolTitle", theme.bold(`${icon("tool")}  ${this.toolName}`));
+		let text = theme.fg("toolTitle", theme.bold(`${iconPrefix("tool")}${this.toolName}`));
 		const content = JSON.stringify(this.args, null, 2);
 		if (content) {
 			text += `\n\n${content}`;

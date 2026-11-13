@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep selected steering and follow-up entries queued until input commitment, preserving order and distinct enqueue identities through interrupted request preparation. Added optional `AgentLoopConfig.onInputMessageCommitted` acknowledgments and a commit receipt for state-owning event sinks, so later observer failures do not redeliver committed input.
+
 ## [1.5.0] - 2026-11-02
 
 ### Breaking Changes

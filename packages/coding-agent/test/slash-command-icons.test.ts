@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
-import { type IconName, type IconPreset, icon, setIconPreset } from "../src/modes/interactive/icons.ts";
+import { type IconName, type IconPreset, icon, iconPrefix, setIconPreset } from "../src/modes/interactive/icons.ts";
 import { withSlashCommandIcons } from "../src/modes/interactive/slash-command-icons.ts";
 
 const builtinIcons: Record<string, IconName> = {
@@ -49,6 +49,8 @@ const extensionIcons = new Map<string, IconName>([
 	["llama", "model"],
 	["mcp", "tool"],
 	["pause", "pause"],
+	["tasks", "tasks"],
+	["tasks:2", "tasks"],
 	["jobs:2", "job"],
 	["deploy", "extension"],
 	["review:1", "extension"],
@@ -111,7 +113,7 @@ describe("slash-command icons", () => {
 	afterAll(() => rmSync(directory, { recursive: true, force: true }));
 
 	test.each<IconPreset>(["unicode", "nerd"])(
-		"decorates every command source with two spaces in %s",
+		"decorates every command source with compact or optically reserved prefixes in %s",
 		async (preset) => {
 			setIconPreset(preset);
 			const { base, decorated } = createProviders();
@@ -129,7 +131,7 @@ describe("slash-command icons", () => {
 						: Object.hasOwn(builtinIcons, item.value)
 							? builtinIcons[item.value]!
 							: extensionIcons.get(item.value)!;
-				expect(item.label).toBe(`${icon(expected)}  ${raw.label}`);
+				expect(item.label).toBe(`${iconPrefix(expected)}${raw.label}`);
 				expect(item.value).toBe(raw.value);
 				expect(item.description).toBe(raw.description);
 				expect(decorated.applyCompletion(["/"], 0, 1, item, "/")).toEqual({
@@ -223,13 +225,34 @@ describe("slash-command icons", () => {
 		expect(decorated.triggerCharacters).toEqual(["#"]);
 		expect(decorated.shouldTriggerFileCompletion?.(["/custom"], 0, 7)).toBe(false);
 		const custom = (await suggestions(decorated, "/custom"))!;
-		expect(custom.items[0]?.label).toBe(`${icon("extension")}  custom:2`);
+		expect(custom.items[0]?.label).toBe(`${icon("extension")} custom:2`);
 		expect(customItem.label).toBe("custom:2");
 		decorated.applyCompletion(["/custom"], 0, 7, custom.items[0]!, custom.prefix);
 		expect(applyCompletion).toHaveBeenCalledWith(["/custom"], 0, 7, customItem, "/custom");
 		expect(applyCompletion.mock.calls[0]?.[3]).toBe(customItem);
 		expect(await suggestions(decorated, "#issue")).toEqual(await suggestions(extension, "#issue"));
-		expect((await suggestions(decorated, "/jobs"))?.items[0]?.label).toBe(`${icon("job")}  jobs`);
+		expect((await suggestions(decorated, "/jobs"))?.items[0]?.label).toBe(`${icon("job")} jobs`);
+	});
+
+	test.each([
+		["jobs", "\uf085"],
+		["tree", "\uf0e8"],
+		["hotkeys", "\uf11c"],
+	] as const)("reserves optical room for /%s without changing completion", async (name, glyph) => {
+		const { decorated } = createProviders();
+		const result = (await suggestions(decorated, `/${name}`))!;
+		const item = result.items.find((item) => item.value === name)!;
+		const unicode = item.label;
+		setIconPreset("nerd");
+		expect(item.label).toBe(`${glyph}  ${name}`);
+		const list = new SelectList(result.items, 5, selectTheme);
+		for (const width of [4, 8, 20, 100])
+			for (const line of list.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		expect(decorated.applyCompletion([`/${name}`], 0, name.length + 1, item, result.prefix).lines).toEqual([
+			`/${name} `,
+		]);
+		setIconPreset("unicode");
+		expect(item.label).toBe(unicode);
 	});
 
 	test("updates an existing picker on preset changes without changing its selection or values", async () => {
@@ -240,11 +263,11 @@ describe("slash-command icons", () => {
 		list.setSelectedIndex(selectedIndex);
 		const selected = list.getSelectedItem();
 		const unicode = list.render(100).join("\n");
-		expect(unicode).toContain(`${icon("model")}  model`);
+		expect(unicode).toContain(`${icon("model")} model`);
 		setIconPreset("nerd");
 		list.invalidate();
 		const nerd = list.render(100).join("\n");
-		expect(nerd).toContain(`${icon("model")}  model`);
+		expect(nerd).toContain(`${icon("model")} model`);
 		expect(nerd).not.toBe(unicode);
 		expect(list.getSelectedItem()).toBe(selected);
 		expect(selected?.value).toBe("model");

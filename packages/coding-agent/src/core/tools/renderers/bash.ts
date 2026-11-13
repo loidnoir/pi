@@ -9,7 +9,7 @@
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import { VisualLinePreview } from "../../../modes/interactive/components/visual-truncate.ts";
-import { icon } from "../../../modes/interactive/icons.ts";
+import { iconPrefix } from "../../../modes/interactive/icons.ts";
 import { theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
 import type { BashToolDetails } from "../bash.ts";
@@ -28,11 +28,11 @@ function formatShellCall(args: ShellRenderArgs | undefined, prompt: string): str
 	if (args?.async) {
 		const name = str(args.name);
 		return (
-			theme.fg("toolTitle", theme.bold(`${icon("job")}  Start background job${name ? ` · ${name}` : ""}`)) +
+			theme.fg("toolTitle", theme.bold(`${iconPrefix("job")}Start background job${name ? ` · ${name}` : ""}`)) +
 			`\n${theme.fg("muted", `${prompt} ${commandDisplay}`)}${timeoutSuffix}`
 		);
 	}
-	return theme.fg("toolTitle", theme.bold(`${icon("terminal")}  ${prompt} ${commandDisplay}`)) + timeoutSuffix;
+	return theme.fg("toolTitle", theme.bold(`${iconPrefix("terminal")}${prompt} ${commandDisplay}`)) + timeoutSuffix;
 }
 function rebuildBashResultRenderComponent(
 	component: Container,

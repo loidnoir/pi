@@ -1,7 +1,7 @@
 // Interactive role selection, child status, and paged history without adding view traffic to main chat.
 import { getKeybindings, Input, indexedColor, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { keyText } from "../../modes/interactive/components/keybinding-hints.ts";
-import { type IconName, icon } from "../../modes/interactive/icons.ts";
+import { type IconName, icon, iconPrefix } from "../../modes/interactive/icons.ts";
 import { theme } from "../../modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../utils/ansi.ts";
 import { sanitizeBinaryOutput } from "../../utils/shell.ts";
@@ -161,7 +161,7 @@ export class SubagentsView implements PaneView {
 			) {
 				const role = this.catalog.agents[index];
 				const row = line(
-					`${index === this.roleSelection ? ">" : " "} ${agentIcon(role.name)} ${role.name} [${role.source}] — ${role.description}`,
+					`${index === this.roleSelection ? ">" : " "} ${agentIconPrefix(role.name)}${role.name} [${role.source}] — ${role.description}`,
 					width,
 				);
 				lines.push(index === this.roleSelection ? theme.fg("accent", row) : row);
@@ -169,9 +169,10 @@ export class SubagentsView implements PaneView {
 			for (const error of this.catalog.errors.slice(0, 2))
 				lines.push(theme.fg("warning", line(`${error.path}: ${error.error}`, width)));
 		} else if (this.detail && agent) {
+			const prefix = `${statusDot(agent.status)}  ${agentIconPrefix(agent.role)}`;
 			lines.push(
 				truncateToWidth(
-					`${statusDot(agent.status)} ${agentIcon(agent.role)} ${theme.bold(line(agent.label, Math.max(0, width - 5)))}`,
+					`${prefix}${theme.bold(line(agent.label, Math.max(0, width - visibleWidth(prefix))))}`,
 					width,
 				),
 				line(agent.id, width),
@@ -211,7 +212,7 @@ export class SubagentsView implements PaneView {
 			const start = Math.max(0, this.selected - Math.max(1, height - 7) + 1);
 			for (let index = start; index < Math.min(this.agents.length, start + Math.max(1, height - 7)); index++) {
 				const child = this.agents[index];
-				const prefix = `${index === this.selected ? theme.fg("accent", ">") : " "} ${statusDot(child.status)} ${agentIcon(child.role)} `;
+				const prefix = `${index === this.selected ? theme.fg("accent", ">") : " "} ${statusDot(child.status)}  ${agentIconPrefix(child.role)}`;
 				const suffix = ` ${child.id.slice(0, 8)}`;
 				const text = line(
 					`${child.role} · ${child.label}`,
@@ -318,7 +319,7 @@ function line(text: string, width: number): string {
 	return truncateToWidth(clean(text).replace(/\n/g, "\\n"), width);
 }
 
-function agentIcon(role: string): string {
+function agentIconPrefix(role: string): string {
 	let name: IconName;
 	switch (role) {
 		case "worker":
@@ -336,7 +337,7 @@ function agentIcon(role: string): string {
 		default:
 			name = "agent";
 	}
-	return icon(name);
+	return iconPrefix(name);
 }
 
 function statusDot(status: SubagentStatus): string {

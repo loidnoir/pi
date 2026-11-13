@@ -87,7 +87,7 @@ describe("reasoning heading icons", () => {
 			.render(80)
 			.map((line) => stripAnsi(line).trimEnd());
 		expect(rendered.filter((line) => line.trim())).toEqual(
-			headings.map(([heading, name]) => ` ${icon(name)}  ${heading}`),
+			headings.map(([heading, name]) => ` ${icon(name)} ${heading}`),
 		);
 	});
 
@@ -111,10 +111,10 @@ describe("reasoning heading icons", () => {
 			["sparkles", "Refining"],
 			["clock", "Awaiting"],
 		] as const) {
-			expect(rendered).toContain(`${icon(name)}  ${title}`);
+			expect(rendered).toContain(`${icon(name)} ${title}`);
 		}
-		expect(rendered).toContain(`${icon("search")}  ### Reviewing a third-level heading`);
-		expect(rendered).toContain(`${icon("location")}  ###### Locating a sixth-level heading`);
+		expect(rendered).toContain(`${icon("search")} ### Reviewing a third-level heading`);
+		expect(rendered).toContain(`${icon("location")} ###### Locating a sixth-level heading`);
 	});
 
 	test("decorates standalone emphasized action labels with colons without classifying prose or code", () => {
@@ -128,13 +128,13 @@ describe("reasoning heading icons", () => {
 			"```md\nDesign: pause wrapper\n```",
 		].join("\n\n");
 		const rendered = thinkingMarkdown(markdown).render(80).map(stripAnsi);
-		expect(rendered.filter((line) => line.includes(`${icon("search")}  `))).toEqual([
-			expect.stringContaining(`${icon("search")}  Review: paused-state UI`),
+		expect(rendered.filter((line) => line.includes(`${icon("search")} `))).toEqual([
+			expect.stringContaining(`${icon("search")} Review: paused-state UI`),
 		]);
-		expect(rendered.filter((line) => line.includes(`${icon("edit")}  `))).toEqual([
-			expect.stringContaining(`${icon("edit")}  Design: pause wrapper`),
+		expect(rendered.filter((line) => line.includes(`${icon("edit")} `))).toEqual([
+			expect.stringContaining(`${icon("edit")} Design: pause wrapper`),
 		]);
-		expect(rendered.join("\n")).toContain(`${icon("read")}  Checking: paused state`);
+		expect(rendered.join("\n")).toContain(`${icon("read")} Checking: paused state`);
 	});
 
 	test("keeps repeated heading text in prose, nested blocks, and display math undecorated", () => {
@@ -149,11 +149,11 @@ describe("reasoning heading icons", () => {
 			"**Designing** the second wrapper",
 		].join("\n\n");
 		const rendered = thinkingMarkdown(markdown).render(80).map(stripAnsi);
-		expect(rendered.filter((line) => line.includes(`${icon("read")}  `))).toEqual([
-			expect.stringContaining(`${icon("read")}  Checking the state`),
+		expect(rendered.filter((line) => line.includes(`${icon("read")} `))).toEqual([
+			expect.stringContaining(`${icon("read")} Checking the state`),
 		]);
-		expect(rendered.filter((line) => line.includes(`${icon("edit")}  `))).toHaveLength(2);
-		expect(rendered.join("\n")).not.toContain(`${icon("search")}  `);
+		expect(rendered.filter((line) => line.includes(`${icon("edit")} `))).toHaveLength(2);
+		expect(rendered.join("\n")).not.toContain(`${icon("search")} `);
 	});
 
 	test("keeps per-heading metadata valid when cached blocks move after new earlier headings", () => {
@@ -161,9 +161,9 @@ describe("reasoning heading icons", () => {
 		component.render(80);
 		component.setText("Locating the file\n\nDesigning the wrapper\n\nChecking the status");
 		const rendered = stripAnsi(component.render(80).join("\n"));
-		expect(rendered).toContain(`${icon("location")}  Locating the file`);
-		expect(rendered).toContain(`${icon("edit")}  Designing the wrapper`);
-		expect(rendered).toContain(`${icon("read")}  Checking the status`);
+		expect(rendered).toContain(`${icon("location")} Locating the file`);
+		expect(rendered).toContain(`${icon("edit")} Designing the wrapper`);
+		expect(rendered).toContain(`${icon("read")} Checking the status`);
 	});
 
 	test("keeps the full Markdown document and excludes nested blocks, code, files, and prose", () => {
@@ -185,17 +185,18 @@ describe("reasoning heading icons", () => {
 		].join("\n\n");
 		const width = 96;
 		const rendered = thinkingMarkdown(markdown).render(width);
-		const body = rendered.map((line) => stripAnsi(line).slice(4));
+		const gutterWidth = visibleWidth(` ${icon("thinking")} `);
+		const body = rendered.map((line) => stripAnsi(line).slice(gutterWidth));
 		const ordinary = new Markdown(markdown, 0, 0, getMarkdownTheme(), {
 			color: (text) => theme.fg("thinkingText", text),
 			italic: true,
-		}).render(width - 4);
+		}).render(width - gutterWidth);
 		expect(body).toEqual(ordinary.map(stripAnsi));
 		const visible = stripAnsi(rendered.join("\n"));
-		expect(visible).toContain(`${icon("edit")}  Designing the wrapper`);
-		expect(visible).toContain(`${icon("sparkles")}  Refining the layout`);
+		expect(visible).toContain(`${icon("edit")} Designing the wrapper`);
+		expect(visible).toContain(`${icon("sparkles")} Refining the layout`);
 		for (const name of ["location", "search", "read", "clock"] as const) {
-			expect(visible).not.toContain(`${icon(name)}  `);
+			expect(visible).not.toContain(`${icon(name)} `);
 		}
 		expect(rendered.join("\n")).not.toContain("pi-thinking-heading");
 	});
@@ -208,7 +209,7 @@ describe("reasoning heading icons", () => {
 		component.invalidate();
 		const rendered = stripAnsi(component.render(80).join("\n"));
 		expect(component.render(80)).not.toEqual(before);
-		for (const name of ["edit", "location", "sparkles"] as const) expect(rendered).toContain(`${icon(name)}  `);
+		for (const name of ["edit", "location", "sparkles"] as const) expect(rendered).toContain(`${icon(name)} `);
 	});
 
 	test.each([0, 1, 2, 3, 4, 5, 8, 20, 80])("keeps all lines within %i columns", (width) => {
@@ -229,8 +230,8 @@ describe("reasoning heading icons", () => {
 		const component = new ThinkingMarkdown(source, 1, getMarkdownTheme(), transform);
 		const rendered = stripAnsi(component.render(80).join("\n"));
 		component.render(80);
-		expect(transform).toHaveBeenCalledExactlyOnceWith(source, 76);
-		expect(rendered).toContain(`${icon("edit")}  Designing the changes`);
-		expect(rendered).toContain(`${icon("read")}  Checking the renderer`);
+		expect(transform).toHaveBeenCalledExactlyOnceWith(source, 77);
+		expect(rendered).toContain(`${icon("edit")} Designing the changes`);
+		expect(rendered).toContain(`${icon("read")} Checking the renderer`);
 	});
 });

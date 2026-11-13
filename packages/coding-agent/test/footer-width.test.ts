@@ -123,7 +123,7 @@ describe("FooterComponent single-line layout", () => {
 		for (const preset of ["nerd", "unicode"] as const) {
 			setIconPreset(preset);
 			footer.invalidate();
-			expect(stripAnsi(footer.render(160)[0])).toContain(`${icon("pause")}  Paused · /pause to continue`);
+			expect(stripAnsi(footer.render(160)[0])).toContain(`${icon("pause")} Paused · /pause to continue`);
 			for (const width of [0, 1, 8, 40, 160])
 				expect(visibleWidth(footer.render(width)[0])).toBeLessThanOrEqual(width);
 		}
@@ -138,17 +138,18 @@ describe("FooterComponent single-line layout", () => {
 			createFooterData(statuses),
 		);
 		const text = stripAnsi(footer.render(160)[0]);
-		expect(text.endsWith(`test-model • ${icon("fast")}  xhigh`)).toBe(true);
+		expect(text.endsWith(`12.3%/200k • test-model • ${icon("fast")} xhigh`)).toBe(true);
+		expect(text).not.toContain("(auto)");
 		expect(text).not.toContain("fast (priority)");
 		expect(statuses.get("fast")).toBe("fast (priority)");
 		for (const width of [0, 1, 8, 40, 160]) expect(visibleWidth(footer.render(width)[0])).toBeLessThanOrEqual(width);
 		setIconPreset(preset === "nerd" ? "unicode" : "nerd");
 		footer.invalidate();
-		expect(stripAnsi(footer.render(160)[0])).toContain(`${icon("fast")}  xhigh`);
+		expect(stripAnsi(footer.render(160)[0])).toContain(`${icon("fast")} xhigh`);
 	});
 
 	it.each([
-		{ options: { reasoning: true }, suffix: () => `test-model • ${icon("fast")}  thinking off` },
+		{ options: { reasoning: true }, suffix: () => `test-model • ${icon("fast")} thinking off` },
 		{ options: {}, suffix: () => `test-model ${icon("fast")}` },
 		{
 			options: {
@@ -156,7 +157,7 @@ describe("FooterComponent single-line layout", () => {
 				thinkingLevel: "high",
 				routedModel: { model: { id: "physical" }, thinkingLevel: "medium" },
 			},
-			suffix: () => `test-model • high → physical • ${icon("fast")}  medium`,
+			suffix: () => `test-model • high → physical • ${icon("fast")} medium`,
 		},
 		{
 			options: { routedModel: { model: { id: "physical" } } },
@@ -194,7 +195,7 @@ describe("FooterComponent single-line layout", () => {
 
 		expect(lines).toHaveLength(1);
 		expect(visibleWidth(lines[0])).toBe(120);
-		expect(stripAnsi(lines[0])).toMatch(/^\/tmp\/project ↑12k ↓6\.8k {2,}12\.3%\/200k \(auto\) test-model • high$/);
+		expect(stripAnsi(lines[0])).toMatch(/^\/tmp\/project ↑12k ↓6\.8k {2,}12\.3%\/200k • test-model • high$/);
 	});
 
 	it.each([
@@ -203,19 +204,19 @@ describe("FooterComponent single-line layout", () => {
 	])("uses the existing provider label policy with $providerCount providers", ({ providerCount, expectedModel }) => {
 		const footer = new FooterComponent(createSession(), createFooterData(new Map(), providerCount));
 
-		expect(stripAnsi(footer.render(120)[0]).endsWith(`12.3%/200k (auto) ${expectedModel}`)).toBe(true);
+		expect(stripAnsi(footer.render(120)[0]).endsWith(`12.3%/200k • ${expectedModel}`)).toBe(true);
 	});
 
 	it("omits the provider when adding it would require truncating the main fields", () => {
 		const footer = new FooterComponent(createSession(), createFooterData(new Map(), 2));
-		const fullLine = "/tmp/project ↑0 ↓0  12.3%/200k (auto) (test) test-model";
+		const fullLine = "/tmp/project ↑0 ↓0  12.3%/200k • (test) test-model";
 		const width = visibleWidth(fullLine);
 
 		expect(stripAnsi(footer.render(width)[0])).toBe(fullLine);
 		const narrowLine = footer.render(width - 1)[0];
 		expect(visibleWidth(narrowLine)).toBe(width - 1);
 		expect(stripAnsi(narrowLine)).not.toContain("(test)");
-		expect(stripAnsi(narrowLine)).toMatch(/^\/tmp\/project ↑0 ↓0 {2,}12\.3%\/200k \(auto\) test-model$/);
+		expect(stripAnsi(narrowLine)).toMatch(/^\/tmp\/project ↑0 ↓0 {2,}12\.3%\/200k • test-model$/);
 	});
 
 	it("shows zero input and output counts before any usage", () => {
@@ -315,7 +316,7 @@ describe("FooterComponent single-line layout", () => {
 		const lines = footer.render(120);
 
 		expect(lines).toHaveLength(1);
-		expect(stripAnsi(lines[0])).toContain("12.3%/200k (auto) • xp test-model");
+		expect(stripAnsi(lines[0])).toContain("12.3%/200k • xp • test-model");
 		expect(lines[0]).toContain(theme.bold(theme.fg("warning", "xp")));
 	});
 
@@ -323,13 +324,13 @@ describe("FooterComponent single-line layout", () => {
 		const session = createSession({ contextUsage: { tokens: null, contextWindow: 128_000, percent: null } });
 		const footer = new FooterComponent(session, createFooterData());
 
-		expect(stripAnsi(footer.render(120)[0])).toContain("?/128k (auto)");
+		expect(stripAnsi(footer.render(120)[0])).toContain("?/128k • test-model");
 	});
 
 	it("falls back to the model window when context usage is unavailable", () => {
 		const footer = new FooterComponent(createSession({ contextUsage: "unavailable" }), createFooterData());
 
-		expect(stripAnsi(footer.render(120)[0])).toContain("0.0%/200k (auto)");
+		expect(stripAnsi(footer.render(120)[0])).toContain("0.0%/200k • test-model");
 	});
 
 	it("handles missing models and context usage", () => {
@@ -338,16 +339,16 @@ describe("FooterComponent single-line layout", () => {
 			createFooterData(),
 		);
 
-		expect(stripAnsi(footer.render(120)[0])).toMatch(/0\.0%\/0 \(auto\) no-model$/);
+		expect(stripAnsi(footer.render(120)[0])).toMatch(/0\.0%\/0 • no-model$/);
 	});
 
-	it("omits the auto indication when auto-compaction is disabled", () => {
+	it("omits the auto-compaction indication without hiding context usage", () => {
 		const footer = new FooterComponent(createSession(), createFooterData());
-		footer.setAutoCompactEnabled(false);
 		const text = stripAnsi(footer.render(120)[0]);
 
-		expect(text).toContain("12.3%/200k");
+		expect(text).toContain("12.3%/200k • test-model");
 		expect(text).not.toContain("(auto)");
+		expect(footer.render(120)[0]).toContain(theme.fg("dim", " • "));
 	});
 
 	it.each([
@@ -361,7 +362,7 @@ describe("FooterComponent single-line layout", () => {
 			createFooterData(),
 		);
 
-		expect(footer.render(120)[0]).toContain(theme.fg(color, `${percent.toFixed(1)}%/200k (auto)`));
+		expect(footer.render(120)[0]).toContain(theme.fg(color, `${percent.toFixed(1)}%/200k`));
 	});
 
 	it("sorts extension statuses by key and normalizes them without adding a row", () => {
@@ -378,7 +379,7 @@ describe("FooterComponent single-line layout", () => {
 		expect(lines[0]).not.toMatch(/[\r\n\t\u2028\u2029]/);
 		expect(stripAnsi(lines[0])).toContain("↑0 ↓0 first second third fourth fifth ready");
 		expect(lines[0]).toContain("\x1b[32mready\x1b[0m");
-		expect(stripAnsi(lines[0])).toMatch(/12\.3%\/200k \(auto\) test-model$/);
+		expect(stripAnsi(lines[0])).toMatch(/12\.3%\/200k • test-model$/);
 	});
 
 	it("truncates long styled statuses without displacing the main footer fields", () => {
@@ -390,7 +391,7 @@ describe("FooterComponent single-line layout", () => {
 
 		expect(lines).toHaveLength(1);
 		expect(visibleWidth(lines[0])).toBe(100);
-		expect(stripAnsi(lines[0])).toMatch(/^\/tmp\/project ↑0 ↓0 busy .*\.\.\. {2}12\.3%\/200k \(auto\) test-model$/);
+		expect(stripAnsi(lines[0])).toMatch(/^\/tmp\/project ↑0 ↓0 busy .*\.\.\. {2}12\.3%\/200k • test-model$/);
 	});
 
 	it("truncates long directories while keeping token counts and right-hand details", () => {
@@ -399,7 +400,7 @@ describe("FooterComponent single-line layout", () => {
 
 		expect(lines).toHaveLength(1);
 		expect(visibleWidth(lines[0])).toBe(100);
-		expect(stripAnsi(lines[0])).toMatch(/^\/tmp\/.*\.\.\. ↑0 ↓0 {2}12\.3%\/200k \(auto\) test-model$/);
+		expect(stripAnsi(lines[0])).toMatch(/^\/tmp\/.*\.\.\. ↑0 ↓0 {2}12\.3%\/200k • test-model$/);
 	});
 
 	it("keeps Unicode and ANSI content within every narrow width, including zero", () => {

@@ -13,7 +13,7 @@ import {
 	type SettingsConfig,
 	SettingsSelectorComponent,
 } from "../src/modes/interactive/components/settings-selector.ts";
-import { getIconPreset, type IconName, icon, setIconPreset } from "../src/modes/interactive/icons.ts";
+import { getIconPreset, type IconName, icon, iconPrefix, setIconPreset } from "../src/modes/interactive/icons.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
@@ -197,11 +197,11 @@ describe("settings row icons", () => {
 			for (const row of MAIN_ROWS) {
 				const lines = list.render(120).map(stripAnsi);
 				const selected = lines.find((line) => line.startsWith("→ "));
-				expect(selected?.startsWith(`→ ${icon(row.icon)}  ${row.label}  `), row.id).toBe(true);
+				expect(selected?.startsWith(`→ ${iconPrefix(row.icon)}${row.label}  `), row.id).toBe(true);
 				expect(selected?.endsWith(row.value), row.id).toBe(true);
 				list.handleInput("\x1b[B");
 			}
-			expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("compact")}  Auto-compact`);
+			expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("compact")} Auto-compact`);
 		},
 	);
 
@@ -209,10 +209,10 @@ describe("settings row icons", () => {
 		setCapabilities({ images: null, trueColor: true, hyperlinks: false });
 		const list = new SettingsSelectorComponent(createConfig(), createCallbacks()).getSettingsList();
 		for (const row of MAIN_ROWS.filter((row) => row.id !== "show-images" && row.id !== "image-width-cells")) {
-			expect(stripAnsi(list.render(120).join("\n")), row.id).toContain(`→ ${icon(row.icon)}  ${row.label}`);
+			expect(stripAnsi(list.render(120).join("\n")), row.id).toContain(`→ ${iconPrefix(row.icon)}${row.label}`);
 			list.handleInput("\x1b[B");
 		}
-		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("compact")}  Auto-compact`);
+		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("compact")} Auto-compact`);
 	});
 
 	it.each(["unicode", "nerd"] as const)(
@@ -227,7 +227,7 @@ describe("settings row icons", () => {
 					expect(stripAnsi(list.render(120).join("\n"))).toContain("No matching settings");
 				}
 				for (const row of expectedRows) {
-					expect(stripAnsi(list.render(120).join("\n")), query).toContain(`→ ${icon(row.icon)}  ${row.label}`);
+					expect(stripAnsi(list.render(120).join("\n")), query).toContain(`→ ${iconPrefix(row.icon)}${row.label}`);
 					list.handleInput("\x1b[B");
 				}
 			}
@@ -239,16 +239,16 @@ describe("settings row icons", () => {
 		callbacks.onIconPresetChange.mockImplementation(setIconPreset);
 		const list = new SettingsSelectorComponent(createConfig(), callbacks).getSettingsList();
 		list.selectItem("icon-preset");
-		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("settings")}  Icons`);
+		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("settings")} Icons`);
 		list.handleInput("\r");
 		expect(callbacks.onIconPresetChange).toHaveBeenLastCalledWith("nerd");
-		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("settings")}  Icons`);
+		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("settings")} Icons`);
 		list.selectItem("autocompact");
-		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("compact")}  Auto-compact`);
+		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("compact")} Auto-compact`);
 		list.selectItem("icon-preset");
 		list.handleInput(" ");
 		expect(callbacks.onIconPresetChange).toHaveBeenLastCalledWith("unicode");
-		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("settings")}  Icons`);
+		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("settings")} Icons`);
 	});
 
 	it("preserves IDs, keyboard and mouse controls, callback values, and cancel", () => {
@@ -262,9 +262,9 @@ describe("settings row icons", () => {
 		expect(callbacks.onAutoCompactChange.mock.calls.flat()).toEqual([false, true, false]);
 
 		list.handleInput("\x1b[6~");
-		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("terminal")}  Clear on shrink`);
+		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("terminal")} Clear on shrink`);
 		list.handleInput("\x1b[5~");
-		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("compact")}  Auto-compact`);
+		expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("compact")} Auto-compact`);
 		list.handleInput("\x1b[A");
 		list.handleInput("\r");
 		expect(callbacks.onMinimizedRexJobsChange).toHaveBeenCalledWith(false);
@@ -286,7 +286,7 @@ describe("settings row icons", () => {
 		list.handleInput("\r");
 		for (const preset of ["unicode", "nerd"] as const) {
 			setIconPreset(preset);
-			expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("bug")}  Anthropic extra usage  true`);
+			expect(stripAnsi(list.render(120).join("\n"))).toContain(`→ ${icon("bug")} Anthropic extra usage  true`);
 		}
 		list.handleInput("\r");
 		expect(callbacks.onWarningsChange).toHaveBeenCalledWith({ anthropicExtraUsage: false });
@@ -297,9 +297,9 @@ describe("settings row icons", () => {
 			setIconPreset(preset);
 			const output = stripAnsi(list.render(120).join("\n"));
 			for (const label of ["Light theme", "Dark theme", "Change mode"]) {
-				expect(output).toContain(`${icon("settings")}  ${label}`);
+				expect(output).toContain(`${icon("settings")} ${label}`);
 			}
-			expect(output).toContain(`${icon("submit")}  Apply`);
+			expect(output).toContain(`${icon("submit")} Apply`);
 		}
 		list.handleInput("\x1b[B");
 		list.handleInput("\x1b[B");

@@ -1,7 +1,7 @@
 import { Container, SelectList, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { stripAnsi } from "../../../utils/ansi.ts";
 import type { CopyItem } from "../copy-items.ts";
-import { icon } from "../icons.ts";
+import { iconPrefix } from "../icons.ts";
 import { getSelectListTheme, theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyDisplayText } from "./keybinding-hints.ts";
@@ -32,7 +32,7 @@ export class CopySelectorComponent extends Container {
 				maxPrimaryColumnWidth: 36,
 				truncatePrimary: ({ text, maxWidth, item }) => {
 					const kind = this.items[Number(item.value)].kind;
-					return truncateToWidth(`${icon(kind === "whole" ? "copy" : kind)} ${text}`, maxWidth, "");
+					return truncateToWidth(`${iconPrefix(kind === "whole" ? "copy" : kind)}${text}`, maxWidth, "");
 				},
 			},
 		);

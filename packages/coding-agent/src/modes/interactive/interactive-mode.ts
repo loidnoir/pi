@@ -692,7 +692,6 @@ export class InteractiveMode {
 		this.editorContainer.addChild(this.editor as Component);
 		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
 		this.footer = new FooterComponent(this.session, this.footerDataProvider);
-		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 		this.footerContainer = new Container();
 		this.footerContainer.addChild(this.footer);
 
@@ -2211,7 +2210,6 @@ export class InteractiveMode {
 			this.renderer.setWheelScrollLines(this.settingsManager.getFullscreenWheelScrollLines());
 		}
 		this.footer.setSession(this.session);
-		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 		this.footerDataProvider.setCwd(this.sessionManager.getCwd());
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
 		this.outputPad = this.settingsManager.getOutputPad();
@@ -4157,7 +4155,10 @@ export class InteractiveMode {
 				break;
 			case "user": {
 				const textContent = this.getUserMessageText(message);
-				if (textContent) {
+				const hasImages =
+					typeof message.content !== "string" && message.content.some((block) => block.type === "image");
+				if (textContent || hasImages) {
+					let content = message.content;
 					if (this.chatContainer.children.length > 0) {
 						this.chatContainer.addChild(new Spacer(1));
 					}
@@ -4174,28 +4175,36 @@ export class InteractiveMode {
 						);
 						component.setExpanded(this.toolOutputExpanded);
 						this.chatContainer.addChild(component);
-						// Render user message separately if present
-						if (skillBlock.userMessage) {
-							this.chatContainer.addChild(new Spacer(1));
-							const userComponent = new UserMessageComponent(
-								skillBlock.userMessage,
-								this.getMarkdownThemeWithSettings(),
-								this.outputPad,
-								this.getMarkdownTransformers(),
-								options?.messageId,
-								options?.timestamp,
-							);
-							this.chatContainer.addChild(userComponent);
-						}
-					} else {
+						// Remove only the skill's displayed text, retaining attachment order and original blocks.
+						let skip = skillBlock.userMessage
+							? textContent.lastIndexOf(skillBlock.userMessage)
+							: textContent.length;
+						content =
+							typeof message.content === "string"
+								? (skillBlock.userMessage ?? "")
+								: message.content.map((block) => {
+										if (block.type === "image") return block;
+										const removed = Math.min(skip, block.text.length);
+										skip -= removed;
+										return { ...block, text: block.text.slice(removed) };
+									});
+						if (skillBlock.userMessage || hasImages) this.chatContainer.addChild(new Spacer(1));
+					}
+					if (!skillBlock || skillBlock.userMessage || hasImages) {
 						const userComponent = new UserMessageComponent(
-							textContent,
+							content,
 							this.getMarkdownThemeWithSettings(),
 							this.outputPad,
 							this.getMarkdownTransformers(),
 							options?.messageId,
 							options?.timestamp,
+							{
+								cwd: this.sessionManager.getCwd(),
+								showImages: this.settingsManager.getShowImages(),
+								imageWidthCells: this.settingsManager.getImageWidthCells(),
+							},
 						);
+						userComponent.setExpanded(this.toolOutputExpanded);
 						this.chatContainer.addChild(userComponent);
 					}
 					if (options?.populateHistory) {
@@ -5225,12 +5234,11 @@ export class InteractiveMode {
 				{
 					onAutoCompactChange: (enabled) => {
 						this.session.setAutoCompactionEnabled(enabled);
-						this.footer.setAutoCompactEnabled(enabled);
 					},
 					onShowImagesChange: (enabled) => {
 						this.settingsManager.setShowImages(enabled);
 						for (const child of this.chatContainer.children) {
-							if (child instanceof ToolExecutionComponent) {
+							if (child instanceof ToolExecutionComponent || child instanceof UserMessageComponent) {
 								child.setShowImages(enabled);
 							}
 						}
@@ -5238,7 +5246,7 @@ export class InteractiveMode {
 					onImageWidthCellsChange: (width) => {
 						this.settingsManager.setImageWidthCells(width);
 						for (const child of this.chatContainer.children) {
-							if (child instanceof ToolExecutionComponent) {
+							if (child instanceof ToolExecutionComponent || child instanceof UserMessageComponent) {
 								child.setImageWidthCells(width);
 							}
 						}

@@ -391,6 +391,11 @@ interface ToolDefinitionEntry {
 	sourceInfo: SourceInfo;
 }
 
+interface QueuedUserMessage {
+	message: UserMessage;
+	text: string;
+}
+
 function estimateMessagesTokens(messages: AgentMessage[]): number {
 	let tokens = 0;
 	for (const message of messages) {
@@ -439,9 +444,9 @@ export class AgentSession {
 	private _resolveIdleWait: (() => void) | undefined;
 
 	/** Tracks pending steering messages for UI display. Removed when delivered. */
-	private _steeringMessages: string[] = [];
+	private _steeringMessages: QueuedUserMessage[] = [];
 	/** Tracks pending follow-up messages for UI display. Removed when delivered. */
-	private _followUpMessages: string[] = [];
+	private _followUpMessages: QueuedUserMessage[] = [];
 	/** Queued user messages whose images are normalized when they are delivered. */
 	private _queuedMessagesWithImages = new WeakSet<AgentMessage>();
 	/** Messages queued to be included with the next user prompt as context ("asides"). */
@@ -1135,8 +1140,8 @@ export class AgentSession {
 	private _emitQueueUpdate(): void {
 		this._emit({
 			type: "queue_update",
-			steering: [...this._steeringMessages],
-			followUp: [...this._followUpMessages],
+			steering: this.getSteeringMessages(),
+			followUp: this.getFollowUpMessages(),
 		});
 	}
 
@@ -1232,15 +1237,14 @@ export class AgentSession {
 		// This ensures the UI sees the updated queue state
 		if (event.type === "message_start" && event.message.role === "user") {
 			this._overflowRecoveryAttempted = false;
-			const messageText = contentText(event.message.content, "");
-			// Check steering queue first
-			const steeringIndex = this._steeringMessages.indexOf(messageText);
+			// Match the accepted input, not its text: identical instructions can belong to different queues.
+			const steeringIndex = this._steeringMessages.findIndex((queued) => queued.message === event.message);
 			if (steeringIndex !== -1) {
 				this._steeringMessages.splice(steeringIndex, 1);
 				this._emitQueueUpdate();
 			} else {
 				// Check follow-up queue
-				const followUpIndex = this._followUpMessages.indexOf(messageText);
+				const followUpIndex = this._followUpMessages.findIndex((queued) => queued.message === event.message);
 				if (followUpIndex !== -1) {
 					this._followUpMessages.splice(followUpIndex, 1);
 					this._emitQueueUpdate();
@@ -2468,7 +2472,7 @@ export class AgentSession {
 		const message: AgentMessage = { role: "user", content, timestamp: Date.now() };
 		if (images?.length) this._queuedMessagesWithImages.add(message);
 		this.recovery.queue("steer", message);
-		this._steeringMessages.push(text);
+		this._steeringMessages.push({ message, text });
 		this._emitQueueUpdate();
 		this.agent.steer(message);
 	}
@@ -2484,7 +2488,7 @@ export class AgentSession {
 		const message: AgentMessage = { role: "user", content, timestamp: Date.now() };
 		if (images?.length) this._queuedMessagesWithImages.add(message);
 		this.recovery.queue("followUp", message);
-		this._followUpMessages.push(text);
+		this._followUpMessages.push({ message, text });
 		this._emitQueueUpdate();
 		this.agent.followUp(message);
 	}
@@ -2649,8 +2653,8 @@ export class AgentSession {
 	 * @returns Object with steering and followUp arrays
 	 */
 	clearQueue(): { steering: string[]; followUp: string[] } {
-		const steering = [...this._steeringMessages];
-		const followUp = [...this._followUpMessages];
+		const steering = [...this.getSteeringMessages()];
+		const followUp = [...this.getFollowUpMessages()];
 		this._steeringMessages = [];
 		this._followUpMessages = [];
 		this.agent.clearAllQueues();
@@ -2666,12 +2670,12 @@ export class AgentSession {
 
 	/** Get pending steering messages (read-only) */
 	getSteeringMessages(): readonly string[] {
-		return this._steeringMessages;
+		return this._steeringMessages.map((queued) => queued.text);
 	}
 
 	/** Get pending follow-up messages (read-only) */
 	getFollowUpMessages(): readonly string[] {
-		return this._followUpMessages;
+		return this._followUpMessages.map((queued) => queued.text);
 	}
 
 	get resourceLoader(): ResourceLoader {
@@ -2710,9 +2714,9 @@ export class AgentSession {
 				else this._pendingCustomMessages.push(message);
 			} else {
 				if (message.role === "user") {
-					const text = contentText(message.content);
-					if (input.mode === "start" || input.mode === "steer") this._steeringMessages.push(text);
-					else this._followUpMessages.push(text);
+					const queued = { message, text: contentText(message.content) };
+					if (input.mode === "start" || input.mode === "steer") this._steeringMessages.push(queued);
+					else this._followUpMessages.push(queued);
 					if (typeof message.content !== "string" && message.content.some((part) => part.type === "image"))
 						this._queuedMessagesWithImages.add(message);
 				}
@@ -3538,7 +3542,30 @@ export class AgentSession {
 				prepared = undefined;
 			}
 			if (prepared) this._backgroundCompaction = undefined;
-			const preparation = prepared?.preparation ?? prepareCompaction(pathEntries, settings);
+			let preparation = prepared?.preparation ?? prepareCompaction(pathEntries, settings);
+			if (!prepared && reason === "threshold" && preparation) {
+				const entries = this.sessionManager.buildSessionProjection().entries;
+				const lastResponseIndex = entries.findLastIndex((entry) =>
+					entry.messages.some(
+						(message) =>
+							message.role === "assistant" &&
+							message.stopReason !== "error" &&
+							message.stopReason !== "aborted" &&
+							message.stopReason !== "length",
+					),
+				);
+				const firstUnansweredIndex = entries.findIndex(
+					(entry, index) =>
+						index > lastResponseIndex &&
+						entry.messages.some((message) => message.role === "user" || message.role === "custom"),
+				);
+				const keptEntryId = preparation.firstKeptEntryId;
+				const keptIndex = entries.findIndex((entry) => entry.sourceEntry.id === keptEntryId);
+				// A first request can already contain several queued inputs. None may become summary text before delivery.
+				if (firstUnansweredIndex !== -1 && keptIndex > firstUnansweredIndex) {
+					preparation = prepareCompaction(pathEntries, settings, entries[firstUnansweredIndex].sourceEntry.id);
+				}
+			}
 			if (!preparation) {
 				return false;
 			}

@@ -8,7 +8,7 @@
 
 import { Text } from "@earendil-works/pi-tui";
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
-import { icon } from "../../../modes/interactive/icons.ts";
+import { iconPrefix } from "../../../modes/interactive/icons.ts";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolRenderers, ToolRenderResultOptions } from "../../extensions/types.ts";
 import type { LsToolDetails } from "../ls.ts";
@@ -20,7 +20,7 @@ type LsRenderArgs = { path?: string; limit?: number };
 function formatLsCall(args: LsRenderArgs | undefined, theme: Theme, cwd: string): string {
 	const limit = args?.limit;
 	const pathDisplay = renderToolPath(str(args?.path), theme, cwd, { emptyFallback: ".", kind: "directory" });
-	let text = `${theme.fg("toolTitle", theme.bold(`${icon("folder")}  ls`))} ${pathDisplay}`;
+	let text = `${theme.fg("toolTitle", theme.bold(`${iconPrefix("folder")}ls`))}  ${pathDisplay}`;
 	if (limit !== undefined) {
 		text += theme.fg("toolOutput", ` (limit ${limit})`);
 	}

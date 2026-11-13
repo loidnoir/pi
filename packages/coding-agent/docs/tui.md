@@ -187,6 +187,8 @@ const label = `${icon("code")} Code`;
 
 `IconName` includes content actions (`"code"`, `"quote"`, `"copy"`), chat/form controls, agent roles, and semantic actions such as `"read"`, `"write"`, `"edit"`, `"search"`, `"folder"`, `"terminal"`, `"skill"`, `"job"`, `"tool"`, and `"thinking"`. `icon()` returns an uncolored string; apply the supplied theme's colors separately. It follows the `iconPreset` setting (`"unicode"` or `"nerd"`, represented by `IconPreset`) across built-in components and separately loaded extensions. Resolve icons during rendering, or rebuild cached labels from `invalidate()`, so switching presets updates existing UI. Nerd Font icons require a compatible font selected in the terminal.
 
+Native icon-label pairs use one separator space. The wider Nerd job, tree, keyboard, and terminal glyphs reserve one additional optical column before that separator; shell-file labels share the terminal glyph's reservation. Normal pairs stay compact, including the pen and TypeScript file icons. This presentation padding does not change raw `icon()` values or terminal character widths. Separate header groups use two spaces: for example, an edit action followed by a file icon and filename is `✎ edit  TS filename`. Read headers retain their muted ` — ` separator. Measure the complete formatted prefix with `visibleWidth()` when calculating hanging indents or reserved columns; glyphs and optical reservations vary across presets.
+
 Extensions that construct `SettingsSelectorComponent` must provide `SettingsConfig.iconPreset` and `SettingsCallbacks.onIconPresetChange`.
 
 ## Keep rendering responsive

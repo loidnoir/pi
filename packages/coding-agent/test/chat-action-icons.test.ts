@@ -1,8 +1,9 @@
-import type { TUI } from "@earendil-works/pi-tui";
+import { type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import { createAllToolRenderers } from "../src/core/tools/renderers/index.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
-import { type IconName, icon, setIconPreset } from "../src/modes/interactive/icons.ts";
+import { fileIcon } from "../src/modes/interactive/file-icons.ts";
+import { type IconName, icon, iconPrefix, setIconPreset } from "../src/modes/interactive/icons.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
@@ -35,13 +36,42 @@ describe("chat action icons", () => {
 			process.cwd(),
 		);
 		const nerd = stripAnsi(component.render(100).join("\n"));
-		expect(nerd.trimStart().startsWith(`${icon(item.icon)}  `)).toBe(true);
+		const nerdPrefix = `${icon(item.icon)}${item.icon === "terminal" ? "  " : " "}`;
+		expect(nerd.trimStart().startsWith(nerdPrefix)).toBe(true);
+		expect(nerd.trimStart().startsWith(`${nerdPrefix} `)).toBe(false);
 
 		setIconPreset("unicode");
 		component.invalidate();
 		const unicode = stripAnsi(component.render(100).join("\n"));
-		expect(unicode.trimStart().startsWith(`${icon(item.icon)}  `)).toBe(true);
+		expect(unicode.trimStart().startsWith(`${icon(item.icon)} `)).toBe(true);
+		expect(unicode.trimStart().startsWith(`${icon(item.icon)}  `)).toBe(false);
 		expect(unicode).not.toBe(nerd);
+	});
+
+	test.each(["write", "edit", "ls"] as const)("keeps %s icon-label pairs tight and header groups separate", (name) => {
+		const path = "日本語 file.ts";
+		const args = { path, content: "", edits: [] };
+		const original = structuredClone(args);
+		const component = new ToolExecutionComponent(
+			name,
+			`spacing-${name}`,
+			args,
+			{},
+			renderers[name],
+			tui,
+			process.cwd(),
+		);
+		const actionIcon = name === "ls" ? "folder" : name;
+		for (const preset of ["nerd", "unicode", "nerd"] as const) {
+			setIconPreset(preset);
+			component.invalidate();
+			const glyph = fileIcon(path, name === "ls" ? "directory" : "file");
+			const fileLabel = glyph ? `${glyph} ${path}` : path;
+			expect(stripAnsi(component.render(120).join("\n"))).toContain(`${icon(actionIcon)} ${name}  ${fileLabel}`);
+			for (const width of [4, 8, 12, 30])
+				for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
+		expect(args).toEqual(original);
 	});
 
 	test("uses the eye glyph and separates the read action from the file label", () => {
@@ -57,7 +87,7 @@ describe("chat action icons", () => {
 		);
 		expect(icon("read")).toBe("\u{f0208}");
 		const rendered = component.render(100).join("\n");
-		expect(stripAnsi(rendered)).toContain(`${icon("read")}  read — \ue628  src/example.ts`);
+		expect(stripAnsi(rendered)).toContain(`${icon("read")} read — \ue628 src/example.ts`);
 		expect(rendered).toContain(theme.fg("muted", " — "));
 	});
 
@@ -72,38 +102,49 @@ describe("chat action icons", () => {
 			tui,
 			process.cwd(),
 		);
-		expect(stripAnsi(component.render(100).join("\n"))).toContain(`${icon("skill")}  [skill] example`);
+		expect(stripAnsi(component.render(100).join("\n"))).toContain(`${icon("skill")} [skill] example`);
 	});
 
 	test("prefixes unknown tools without a registered renderer", () => {
 		setIconPreset("nerd");
 		const component = new ToolExecutionComponent("custom", "custom-icon", {}, {}, undefined, tui, ".");
-		expect(stripAnsi(component.render(100).join("\n"))).toContain(`${icon("tool")}  custom`);
+		expect(stripAnsi(component.render(100).join("\n"))).toContain(`${icon("tool")} custom`);
 	});
 
-	test("keeps background job acknowledgments compact without claiming completion", () => {
-		setIconPreset("nerd");
-		const component = new ToolExecutionComponent(
-			"bash",
-			"background-icon",
-			{ command: "npm run check", async: true, name: "Type check" },
-			{},
-			renderers.bash,
-			tui,
-			".",
-		);
-		const output = "Job 12345678-abcd\nState: running\nFull output: /tmp/job.log\nUse jobs to inspect or control it.";
-		component.updateResult({
-			content: [{ type: "text", text: output }],
-			details: { jobId: "12345678-abcd", jobState: "running" },
-			isError: false,
-		});
-		const collapsed = stripAnsi(component.render(100).join("\n"));
-		expect(collapsed).toContain(`${icon("job")}  Start background job · Type check`);
-		expect(collapsed).toContain("Job 12345678 · running");
-		expect(collapsed).not.toContain("completed");
-		expect(collapsed).not.toContain("/tmp/job.log");
-		component.setExpanded(true);
-		expect(stripAnsi(component.render(100).join("\n"))).toContain("Full output: /tmp/job.log");
-	});
+	test.each(["bash", "powershell"] as const)(
+		"keeps %s background job acknowledgments compact without claiming completion",
+		(name) => {
+			setIconPreset("nerd");
+			const component = new ToolExecutionComponent(
+				name,
+				"background-icon",
+				{ command: "npm run check", async: true, name: "Type check" },
+				{},
+				renderers[name],
+				tui,
+				".",
+			);
+			const output =
+				"Job 12345678-abcd\nState: running\nFull output: /tmp/job.log\nUse jobs to inspect or control it.";
+			component.updateResult({
+				content: [{ type: "text", text: output }],
+				details: { jobId: "12345678-abcd", jobState: "running" },
+				isError: false,
+			});
+			const collapsed = stripAnsi(component.render(100).join("\n"));
+			expect(collapsed).toContain(`${icon("job")}  Start background job · Type check`);
+			for (const preset of ["unicode", "nerd"] as const) {
+				setIconPreset(preset);
+				component.invalidate();
+				expect(stripAnsi(component.render(100).join("\n"))).toContain(`${iconPrefix("job")}Start background job`);
+				for (const width of [4, 8, 12, 30])
+					for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+			}
+			expect(collapsed).toContain("Job 12345678 · running");
+			expect(collapsed).not.toContain("completed");
+			expect(collapsed).not.toContain("/tmp/job.log");
+			component.setExpanded(true);
+			expect(stripAnsi(component.render(100).join("\n"))).toContain("Full output: /tmp/job.log");
+		},
+	);
 });

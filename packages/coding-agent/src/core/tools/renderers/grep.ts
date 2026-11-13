@@ -9,7 +9,7 @@
 import { Text } from "@earendil-works/pi-tui";
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import { fileIconPrefix } from "../../../modes/interactive/file-icons.ts";
-import { icon } from "../../../modes/interactive/icons.ts";
+import { iconPrefix } from "../../../modes/interactive/icons.ts";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolRenderers, ToolRenderResultOptions } from "../../extensions/types.ts";
 import type { GrepToolDetails } from "../grep.ts";
@@ -26,8 +26,8 @@ function formatGrepCall(args: GrepRenderArgs | undefined, theme: Theme): string 
 	const limit = args?.limit;
 	const invalidArg = invalidArgText(theme);
 	let text =
-		theme.fg("toolTitle", theme.bold(`${icon("search")}  grep`)) +
-		" " +
+		theme.fg("toolTitle", theme.bold(`${iconPrefix("search")}grep`)) +
+		"  " +
 		(pattern === null ? invalidArg : theme.fg("accent", `/${pattern || ""}/`)) +
 		theme.fg("toolOutput", ` in ${path === null ? invalidArg : path}`);
 	if (glob) text += theme.fg("toolOutput", ` (${glob})`);

@@ -146,8 +146,14 @@ export interface AgentOptions {
 	identity?: ClientIdentity;
 }
 
+interface PendingMessageEntry {
+	message: AgentMessage;
+}
+
 class PendingMessageQueue {
-	private messages: AgentMessage[] = [];
+	private entries: PendingMessageEntry[] = [];
+	// A payload can be enqueued repeatedly or in both queues; a poll snapshot and slot identify one enqueue.
+	private readonly selections = new WeakMap<AgentMessage[], PendingMessageEntry[]>();
 	public mode: QueueMode;
 
 	constructor(mode: QueueMode) {
@@ -155,27 +161,39 @@ class PendingMessageQueue {
 	}
 
 	enqueue(message: AgentMessage): void {
-		this.messages.push(message);
+		this.entries.push({ message });
 	}
 
 	hasItems(): boolean {
-		return this.messages.length > 0;
+		return this.entries.length > 0;
 	}
 
 	peek(): AgentMessage[] {
-		if (this.mode === "all") return this.messages.slice();
-		const first = this.messages[0];
-		return first ? [first] : [];
+		return this.peekEntries().map((entry) => entry.message);
 	}
 
-	drain(): AgentMessage[] {
-		const drained = this.peek();
-		this.messages = this.messages.slice(drained.length);
-		return drained;
+	select(): AgentMessage[] {
+		const entries = this.peekEntries();
+		const messages = entries.map((entry) => entry.message);
+		this.selections.set(messages, entries);
+		return messages;
+	}
+
+	commit(selection: AgentMessage[], inputIndex: number): void {
+		const entry = this.selections.get(selection)?.[inputIndex];
+		if (!entry) return;
+		const index = this.entries.indexOf(entry);
+		if (index !== -1) this.entries.splice(index, 1);
 	}
 
 	clear(): void {
-		this.messages = [];
+		this.entries = [];
+	}
+
+	private peekEntries(): PendingMessageEntry[] {
+		if (this.mode === "all") return this.entries.slice();
+		const first = this.entries[0];
+		return first ? [first] : [];
 	}
 }
 
@@ -401,13 +419,13 @@ export class Agent {
 		}
 
 		if (lastMessage.role === "assistant") {
-			const queuedSteering = this.steeringQueue.drain();
+			const queuedSteering = this.steeringQueue.select();
 			if (queuedSteering.length > 0) {
 				await this.runPromptMessages(queuedSteering, { skipInitialSteeringPoll: true });
 				return;
 			}
 
-			const queuedFollowUps = this.followUpQueue.drain();
+			const queuedFollowUps = this.followUpQueue.select();
 			if (queuedFollowUps.length > 0) {
 				await this.runPromptMessages(queuedFollowUps);
 				return;
@@ -447,7 +465,7 @@ export class Agent {
 				messages,
 				this.createContextSnapshot(),
 				this.createLoopConfig(options),
-				(event) => this.processEvents(event),
+				(event, commit) => this.processEvents(event, commit),
 				signal,
 				this.streamFunction,
 			);
@@ -459,7 +477,7 @@ export class Agent {
 			await runAgentLoopContinue(
 				this.createContextSnapshot(),
 				this.createLoopConfig(),
-				(event) => this.processEvents(event),
+				(event, commit) => this.processEvents(event, commit),
 				signal,
 				this.streamFunction,
 			);
@@ -508,9 +526,13 @@ export class Agent {
 					skipInitialSteeringPoll = false;
 					return [];
 				}
-				return this.steeringQueue.drain();
+				return this.steeringQueue.select();
 			},
-			getFollowUpMessages: async () => this.followUpQueue.drain(),
+			getFollowUpMessages: async () => this.followUpQueue.select(),
+			onInputMessageCommitted: (selection, inputIndex) => {
+				this.steeringQueue.commit(selection, inputIndex);
+				this.followUpQueue.commit(selection, inputIndex);
+			},
 		};
 	}
 
@@ -572,7 +594,7 @@ export class Agent {
 	 * considered idle later, after all awaited listeners for `agent_end` finish
 	 * and `finishRun()` clears runtime-owned state.
 	 */
-	private async processEvents(event: AgentEvent): Promise<void> {
+	private async processEvents(event: AgentEvent, commit?: () => void): Promise<void> {
 		switch (event.type) {
 			case "message_start":
 				this._state.streamingMessage = event.message;
@@ -585,6 +607,7 @@ export class Agent {
 			case "message_end":
 				this._state.streamingMessage = undefined;
 				this._state.messages.push(event.message);
+				commit?.();
 				break;
 
 			case "tool_execution_start": {

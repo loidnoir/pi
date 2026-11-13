@@ -471,7 +471,7 @@ describe("ToolExecutionComponent parity", () => {
 		);
 
 		const collapsed = stripAnsi(component.render(300).join("\n"));
-		expect(collapsed).toContain('custom_tool query="pi" long="xxx');
+		expect(collapsed).toContain('custom_tool  query="pi" long="xxx');
 		expect(collapsed).toContain("...");
 		expect(collapsed).not.toContain(longValue);
 

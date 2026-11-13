@@ -306,6 +306,15 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	getFollowUpMessages?: () => Promise<AgentMessage[]>;
 
 	/**
+	 * Called when the event sink commits an input, before observers when the sink owns state,
+	 * or after successful message_end dispatch otherwise. `inputs` is the original starting prompt
+	 * array or the exact array returned by a queue poll; `inputIndex` identifies its original slot,
+	 * before tool declaration rewriting. Queue owners can acknowledge that selected enqueue here
+	 * instead of consuming it when polling. Prepared messages and synthesized tool patches are not acknowledged.
+	 */
+	onInputMessageCommitted?: (inputs: AgentMessage[], inputIndex: number) => void;
+
+	/**
 	 * Tool execution mode.
 	 * - "sequential": execute tool calls one by one
 	 * - "parallel": preflight tool calls sequentially, then execute allowed tools concurrently;

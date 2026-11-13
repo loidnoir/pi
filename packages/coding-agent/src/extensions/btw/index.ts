@@ -5,7 +5,7 @@ import { parsePaneCommand } from "../../core/panes/command.ts";
 import { openPane, type PaneHandle, type PaneOptions } from "../../core/panes/host.ts";
 import { SideChatView } from "../../core/panes/side-chat.ts";
 import { createSideSession } from "../../core/side-session.ts";
-import { icon } from "../../modes/interactive/icons.ts";
+import { iconPrefix } from "../../modes/interactive/icons.ts";
 
 type SidePane = { pane: PaneHandle; view: SideChatView };
 
@@ -24,7 +24,7 @@ export function createBtwExtension(): ExtensionFactory {
 			let view!: SideChatView;
 			const pane = await openPane(ctx, {
 				...options,
-				title: `${icon("chat")} btw — temporary read-only conversation`,
+				title: `${iconPrefix("chat")}btw — temporary read-only conversation`,
 				signal: lifetime.signal,
 				create: (controls) => {
 					view = new SideChatView(createSideSession(ctx), controls, question);

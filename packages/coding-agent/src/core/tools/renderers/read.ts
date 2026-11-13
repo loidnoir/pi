@@ -11,7 +11,7 @@ import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { getReadmePath } from "../../../config.ts";
 import { keyHint, keyText } from "../../../modes/interactive/components/keybinding-hints.ts";
-import { icon } from "../../../modes/interactive/icons.ts";
+import { iconPrefix } from "../../../modes/interactive/icons.ts";
 import { getLanguageFromPath, highlightCode, type Theme } from "../../../modes/interactive/theme/theme.ts";
 import { formatPathRelativeToCwdOrAbsolute } from "../../../utils/paths.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
@@ -56,7 +56,7 @@ function styledReadLineRange(args: ReadRenderArgs | undefined, theme: Theme): st
 function formatReadCall(args: ReadRenderArgs | undefined, theme: Theme, cwd: string): string {
 	const path = str(args?.file_path ?? args?.path);
 	const pathDisplay = renderToolPath(path, theme, cwd);
-	return `${theme.fg("toolTitle", theme.bold(`${icon("read")}  read`))}${theme.fg("muted", " — ")}${pathDisplay}${styledReadLineRange(args, theme)}`;
+	return `${theme.fg("toolTitle", theme.bold(`${iconPrefix("read")}read`))}${theme.fg("muted", " — ")}${pathDisplay}${styledReadLineRange(args, theme)}`;
 }
 function trimTrailingEmptyLines(lines: string[]): string[] {
 	let end = lines.length;
@@ -118,7 +118,7 @@ function formatCompactReadCall(
 	const expandHint = theme.fg("dim", ` (${keyText("app.tools.expand")} to expand)`);
 	if (classification.kind === "skill") {
 		return (
-			theme.fg("customMessageLabel", `\x1b[1m${icon("skill")}  [skill]\x1b[22m `) +
+			theme.fg("customMessageLabel", `\x1b[1m${iconPrefix("skill")}[skill]\x1b[22m `) +
 			theme.fg("customMessageText", classification.label) +
 			styledReadLineRange(args, theme) +
 			expandHint
@@ -126,7 +126,7 @@ function formatCompactReadCall(
 	}
 
 	return (
-		theme.fg("toolTitle", theme.bold(`${icon("read")}  read ${classification.kind}`)) +
+		theme.fg("toolTitle", theme.bold(`${iconPrefix("read")}read ${classification.kind}`)) +
 		theme.fg("muted", " — ") +
 		renderToolPath(str(args?.file_path ?? args?.path), theme, cwd, { displayPath: classification.label }) +
 		styledReadLineRange(args, theme) +

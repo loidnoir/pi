@@ -1,5 +1,5 @@
 // File-type glyphs for terminal path labels; never part of tool output or source content.
-import { getIconPreset, icon } from "./icons.ts";
+import { getIconPreset, glyphPrefix, icon } from "./icons.ts";
 
 export type FilePathKind = "file" | "directory";
 
@@ -75,6 +75,5 @@ export function fileIcon(path: string, kind: FilePathKind = "file"): string {
 
 /** Prefix a presentation-only path with its current file glyph when enabled. */
 export function fileIconPrefix(path: string, kind?: FilePathKind): string {
-	const glyph = fileIcon(path, kind);
-	return glyph ? `${glyph}  ` : "";
+	return glyphPrefix(fileIcon(path, kind));
 }

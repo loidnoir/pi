@@ -235,6 +235,18 @@
       "$ref": "#/$defs/KeybindingValue",
       "description": "Toggle tool output"
     },
+    "app.tasks.expand": {
+      "$ref": "#/$defs/KeybindingValue",
+      "description": "Expand or collapse the pinned task list"
+    },
+    "app.tasks.pageUp": {
+      "$ref": "#/$defs/KeybindingValue",
+      "description": "Scroll the expanded task list up"
+    },
+    "app.tasks.pageDown": {
+      "$ref": "#/$defs/KeybindingValue",
+      "description": "Scroll the expanded task list down"
+    },
     "app.thinking.toggle": {
       "$ref": "#/$defs/KeybindingValue",
       "description": "Toggle thinking blocks"

@@ -58,7 +58,7 @@ describe("codemode renderer", () => {
 			],
 			details: { calls: [{ id: "call/1", name: "read", args: '{"path":"a"}', status: "ok", durationMs: 5 }] },
 		});
-		expect(text).toBe('✓ read {"path":"a"} 5ms\n\nhello');
+		expect(text).toBe('✓ read  {"path":"a"}  5ms\n\nhello');
 	});
 
 	it("shows the cost of model calls and their total", () => {
@@ -75,9 +75,9 @@ describe("codemode renderer", () => {
 		});
 		expect(text).toBe(
 			[
-				"✓ models.classify scorer/judge 5ms $0.000013",
-				"✓ models.classify scorer/judge 5ms $0.02",
-				"✓ models.classify scorer/judge 5ms",
+				"✓ models.classify  scorer/judge  5ms  $0.000013",
+				"✓ models.classify  scorer/judge  5ms  $0.02",
+				"✓ models.classify  scorer/judge  5ms",
 				"Model calls: $0.02",
 			].join("\n"),
 		);

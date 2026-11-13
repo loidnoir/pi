@@ -56,7 +56,7 @@ describe("file-type path icons", () => {
 		["C:\\src\\file.ts", "\ue628"],
 	])("selects the conventional glyph for %s", (path, glyph) => {
 		expect(fileIcon(path)).toBe(glyph);
-		expect(fileIconPrefix(path)).toBe(`${glyph}  `);
+		expect(fileIconPrefix(path)).toBe(`${glyph} `);
 	});
 
 	test("uses shell, folder and unknown-file fallbacks without filesystem inference", () => {
@@ -68,6 +68,28 @@ describe("file-type path icons", () => {
 			expect(fileIcon(path)).toBe("\uf15c");
 		}
 	});
+
+	test.each(["run.sh", "run.bash", "run.zsh", "run.fish", "run.ps1", ".bashrc", ".zshrc", ".profile"])(
+		"shares the terminal glyph's optical reservation for %s",
+		(path) => {
+			expect(fileIcon(path)).toBe("\uf120");
+			expect(fileIconPrefix(path)).toBe("\uf120  ");
+			expect(visibleWidth(fileIconPrefix(path))).toBe(3);
+			setCapabilities({ images: null, trueColor: true, hyperlinks: true });
+			expect(renderToolPath(path, theme, "/project")).toBe(
+				theme.fg("accent", "\uf120  ") + hyperlink(theme.fg("accent", path), `file:///project/${path}`),
+			);
+			const component = tool("read", { path });
+			expect(plain(component)).toContain(`read — \uf120  ${path}`);
+			for (const width of [4, 8, 12, 30])
+				for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+			setIconPreset("unicode");
+			component.invalidate();
+			expect(fileIcon(path)).toBe("");
+			expect(fileIconPrefix(path)).toBe("");
+			expect(plain(component)).toContain(`read — ${path}`);
+		},
+	);
 
 	test.each([
 		"https://example.com/file.ts",
@@ -83,23 +105,23 @@ describe("file-type path icons", () => {
 	});
 
 	test.each([
-		{ name: "read", args: { path: "src/file.ts", offset: 9, limit: 2 }, expected: "read — \ue628  src/file.ts:9-10" },
-		{ name: "read", args: { file_path: "src/file.tsx" }, expected: "read — \ue7ba  src/file.tsx" },
-		{ name: "write", args: { path: "src/file.py", content: "" }, expected: "write \ue73c  src/file.py" },
-		{ name: "edit", args: { path: "src/file.rs", edits: [] }, expected: "edit \ue7a8  src/file.rs" },
-		{ name: "ls", args: { path: "directory.ts" }, expected: "ls \uf07b  directory.ts" },
-		{ name: "ls", args: {}, expected: "ls \uf07b  ." },
+		{ name: "read", args: { path: "src/file.ts", offset: 9, limit: 2 }, expected: "read — \ue628 src/file.ts:9-10" },
+		{ name: "read", args: { file_path: "src/file.tsx" }, expected: "read — \ue7ba src/file.tsx" },
+		{ name: "write", args: { path: "src/file.py", content: "" }, expected: "write  \ue73c src/file.py" },
+		{ name: "edit", args: { path: "src/file.rs", edits: [] }, expected: "edit  \ue7a8 src/file.rs" },
+		{ name: "ls", args: { path: "directory.ts" }, expected: "ls  \uf07b directory.ts" },
+		{ name: "ls", args: {}, expected: "ls  \uf07b ." },
 	] as const)("decorates $name header paths", ({ name, args, expected }) => {
 		expect(plain(tool(name, args))).toContain(expected);
 	});
 
 	test("decorates compact docs and resource reads but keeps skill labels semantic", () => {
-		expect(plain(tool("read", { path: getReadmePath() }))).toContain("read docs — \ue73e  README.md");
+		expect(plain(tool("read", { path: getReadmePath() }))).toContain("read docs — \ue73e README.md");
 		expect(plain(tool("read", { path: join(process.cwd(), ".pi", "AGENTS.md") }))).toContain(
-			"read resource — \ue73e  .pi/AGENTS.md",
+			"read resource — \ue73e .pi/AGENTS.md",
 		);
 		const skill = plain(tool("read", { path: "/tmp/example/SKILL.md" }));
-		expect(skill).toContain(`${icon("skill")}  [skill] example`);
+		expect(skill).toContain(`${icon("skill")} [skill] example`);
 		expect(skill).not.toContain("\ue73e");
 	});
 
@@ -107,13 +129,30 @@ describe("file-type path icons", () => {
 		setCapabilities({ images: null, trueColor: true, hyperlinks: true });
 		const rendered = renderToolPath("src/file name.ts", theme, "/project");
 		expect(rendered).toBe(
-			theme.fg("accent", "\ue628  ") +
+			theme.fg("accent", "\ue628 ") +
 				hyperlink(theme.fg("accent", "src/file name.ts"), "file:///project/src/file%20name.ts"),
 		);
 		const compact = tool("read", { path: getReadmePath() }).render(300).join("\n");
 		expect(compact.indexOf("\ue73e")).toBeLessThan(compact.indexOf("\x1b]8;;file:"));
 		expect(compact).toContain("README.md");
 	});
+
+	test.each(["grep", "find", "ls"] as const)(
+		"reserves optical room in %s shell-file rows without rewriting output",
+		(name) => {
+			const path = "日本語 check.ps1";
+			const row = name === "grep" ? `${path}:9: source.ts:10: keep source spacing` : path;
+			const result = { content: [{ type: "text", text: row }], details: { files: [path] }, isError: false };
+			const before = structuredClone(result);
+			const component = tool(name, { pattern: "source" });
+			component.setExpanded(true);
+			component.updateResult(result);
+			expect(plain(component)).toContain(`\uf120  ${row}`);
+			for (const width of [4, 8, 12, 30])
+				for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+			expect(result).toEqual(before);
+		},
+	);
 
 	test.each([":", "-"])("decorates grep %s rows only at the filename prefix", (separator) => {
 		const path = "packages/my file:part.test.ts";
@@ -127,7 +166,7 @@ describe("file-type path icons", () => {
 		};
 		const before = JSON.stringify(result);
 		component.updateResult(result);
-		expect(plain(component)).toContain(`\ue628  ${row}`);
+		expect(plain(component)).toContain(`\ue628 ${row}`);
 		expect(plain(component)).not.toContain(`\ue73c ${source}`);
 		expect(JSON.stringify(result)).toBe(before);
 	});
@@ -140,7 +179,7 @@ describe("file-type path icons", () => {
 				details,
 				isError: false,
 			});
-			expect(plain(component)).toContain(`\ue628  file.ts${separator}8${separator}`);
+			expect(plain(component)).toContain(`\ue628 file.ts${separator}8${separator}`);
 		}
 	});
 
@@ -157,7 +196,7 @@ describe("file-type path icons", () => {
 			isError: false,
 		});
 		const rendered = plain(component);
-		expect(rendered).toContain(`\ue7ba  ${row}`);
+		expect(rendered).toContain(`\ue7ba ${row}`);
 		expect(
 			rendered
 				.split("\n")
@@ -187,8 +226,8 @@ describe("file-type path icons", () => {
 		].join("\n");
 		component.updateResult({ content: [{ type: "text", text: output }], isError: false });
 		const rendered = plain(component);
-		expect(rendered).toContain("\ue628  src/my file:part.ts:9: value README.md:10: source");
-		expect(rendered).toContain("\ue628  src/my file:part.ts-8- context README.md-10- source");
+		expect(rendered).toContain("\ue628 src/my file:part.ts:9: value README.md:10: source");
+		expect(rendered).toContain("\ue628 src/my file:part.ts-8- context README.md-10- source");
 		expect(rendered.match(/\ue628/g)).toHaveLength(2);
 		expect(rendered).not.toContain("\ue73e");
 		expect(rendered).not.toContain(`${icon("read")} [Skipped`);
@@ -205,10 +244,10 @@ describe("file-type path icons", () => {
 			const result = { content: [{ type: "text", text: output }], isError: false };
 			component.updateResult(result);
 			const rendered = plain(component);
-			expect(rendered).toContain(`${icon("folder")}  src/`);
-			expect(rendered).toContain("\ue628  my file:part.ts");
-			expect(rendered).toContain("\ue73e  [bracket].md");
-			expect(rendered).toContain("\uf15c  LICENSE");
+			expect(rendered).toContain(`${icon("folder")} src/`);
+			expect(rendered).toContain("\ue628 my file:part.ts");
+			expect(rendered).toContain("\ue73e [bracket].md");
+			expect(rendered).toContain("\uf15c LICENSE");
 			for (const line of [artifact, notice, "artifact://session/file.ts"]) {
 				expect(
 					rendered
@@ -270,7 +309,7 @@ describe("file-type path icons", () => {
 				isError: false,
 			});
 			const nerd = component.render(300).join("\n");
-			expect(stripAnsi(nerd)).toContain(name === "ls" ? "\uf07b  file.ts" : "\ue628  file.ts");
+			expect(stripAnsi(nerd)).toContain(name === "ls" ? "\uf07b file.ts" : "\ue628 file.ts");
 			initTheme("light");
 			component.invalidate();
 			const light = component.render(300).join("\n");

@@ -157,11 +157,11 @@ describe("interactive held-execution status", () => {
 		f.context.showWorkingStatusIndicator();
 		expect(f.text()).toContain("Custom working message");
 		const pausing = f.harness.session.recovery.pause();
-		expect(f.text()).toContain(`${icon("pause")}  Pausing…`);
+		expect(f.text()).toContain(`${icon("pause")} Pausing…`);
 		expect(f.text()).not.toContain("Custom working message");
 		release.resolve();
 		await pausing;
-		expect(f.text()).toContain(`${icon("pause")}  Paused`);
+		expect(f.text()).toContain(`${icon("pause")} Paused`);
 		expect(f.context.activeStatusIndicator).toBeInstanceOf(WorkingStatusIndicator);
 		f.harness.session.recovery.resume();
 		expect(f.text()).toContain("a Custom working message");
@@ -174,7 +174,7 @@ describe("interactive held-execution status", () => {
 		const f = await fixture();
 		expect(f.context.activeStatusIndicator).toBeUndefined();
 		await f.harness.session.recovery.pause();
-		expect(f.text()).toContain(`${icon("pause")}  Paused`);
+		expect(f.text()).toContain(`${icon("pause")} Paused`);
 		f.context.clearStatusIndicator("working");
 		expect(f.text()).toContain("Paused");
 		f.context.setWorkingVisible(false);
@@ -198,7 +198,7 @@ describe("interactive held-execution status", () => {
 		});
 		const ui = prototype.createExtensionUIContext.call(f.context);
 		await ui.custom(() => ({ render: () => [], invalidate() {} }));
-		expect(f.text()).toContain(`${icon("pause")}  Paused`);
+		expect(f.text()).toContain(`${icon("pause")} Paused`);
 		expect(f.text()).not.toContain("Working");
 		expect(f.harness.faux.state.callCount).toBe(0);
 	});

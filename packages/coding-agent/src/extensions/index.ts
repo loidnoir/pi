@@ -11,6 +11,7 @@ import recallExtension from "./recall/index.ts";
 import recoveryExtension from "./recovery/index.ts";
 import rexExtension from "./rex/index.ts";
 import subagentsExtension from "./subagents/index.ts";
+import tasksExtension from "./tasks/index.ts";
 import toolSearchExtension from "./tool-search/index.ts";
 
 export const builtInExtensions: InlineExtension[] = [
@@ -28,5 +29,6 @@ export const builtInExtensions: InlineExtension[] = [
 	{ name: "btw", factory: btwExtension, replaceable: true, builtin: true },
 	{ name: "recall", factory: recallExtension, replaceable: true, builtin: true },
 	{ name: "subagents", factory: subagentsExtension, replaceable: true, builtin: true },
+	{ name: "tasks", factory: tasksExtension, replaceable: true, builtin: true },
 	{ name: "recovery", factory: recoveryExtension, replaceable: true, builtin: true },
 ];

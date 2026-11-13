@@ -488,6 +488,7 @@ describe("AgentSession compaction characterization", () => {
 			const harness = await createHarness({
 				models: [{ id: "faux-1", contextWindow: 2600, maxTokens: 100 }],
 				settings: {
+					outputArtifacts: { maxInlineTokens: 8000, contextWindowFraction: 1 },
 					compaction: modelOverride
 						? {
 								enabled: true,
@@ -574,6 +575,7 @@ describe("AgentSession compaction characterization", () => {
 			models: [{ id: "faux-1", contextWindow: 2600, maxTokens: 100 }],
 			settings: {
 				compaction: { enabled: true, prepareThreshold: 75, threshold: (2200 / 2600) * 100, keepRecentTokens: 1750 },
+				outputArtifacts: { maxInlineTokens: 8000, contextWindowFraction: 1 },
 			},
 			tools: [largeTool],
 			extensionFactories: [

@@ -2,7 +2,7 @@ import { pathToFileURL } from "node:url";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { getCapabilities, getImageDimensions, hyperlink, imageFallback } from "@earendil-works/pi-tui";
 import { type FilePathKind, fileIconPrefix } from "../../modes/interactive/file-icons.ts";
-import { icon } from "../../modes/interactive/icons.ts";
+import { iconPrefix } from "../../modes/interactive/icons.ts";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../utils/ansi.ts";
 import { resolvePath, shortenHomePath } from "../../utils/paths.ts";
@@ -92,7 +92,7 @@ const COLLAPSED_ARGS_CHARS = 100;
  * line below the title, with strings shown raw and continuation lines indented.
  */
 export function formatToolCallWithArgs(title: string, args: unknown, theme: Theme, expanded: boolean): string {
-	const header = theme.fg("toolTitle", theme.bold(`${icon("tool")}  ${title}`));
+	const header = theme.fg("toolTitle", theme.bold(`${iconPrefix("tool")}${title}`));
 	if (args == null) return header;
 	const entries =
 		typeof args === "object" && !Array.isArray(args)
@@ -108,7 +108,7 @@ export function formatToolCallWithArgs(title: string, args: unknown, theme: Them
 	}
 	const pairs = entries.map(([key, value]) => `${key}=${JSON.stringify(value) ?? String(value)}`).join(" ");
 	const preview = pairs.length > COLLAPSED_ARGS_CHARS ? `${pairs.slice(0, COLLAPSED_ARGS_CHARS - 3)}...` : pairs;
-	return `${header} ${theme.fg("muted", preview)}`;
+	return `${header}  ${theme.fg("muted", preview)}`;
 }
 
 /** Duration as `4.2s` below a minute, then `1m 30s` and `2h 3m 4s`. */

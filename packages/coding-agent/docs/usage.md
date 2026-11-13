@@ -6,7 +6,7 @@ Pi may ask whether you trust the working folder before loading its project resou
 
 <p align="center"><img src="images/interactive-mode.png" alt="Pi interactive mode showing a conversation, editor, and status information" width="750"></p>
 
-The transcript shows your prompts, Pi's responses, tool calls, results, and errors. You write prompts and commands in the editor. The single-line footer shows the current folder and input/output token totals on the left, with context usage, model, and thinking level on the right. Extension statuses, including active job and sub-agent counts, appear on the same line when space permits. Use `/session` for detailed usage and cost.
+The transcript shows your prompts, Pi's responses, tool calls, results, and errors. You write prompts and commands in the editor. The single-line footer shows the current folder and input/output token totals on the left, with context usage, model, and thinking level separated by dots on the right. Extension statuses, including active job and sub-agent counts, appear on the same line when space permits. Use `/session` for detailed usage and cost.
 
 ## Enter a prompt
 
@@ -30,7 +30,19 @@ Pi shows each tool call and result while it works. Leading icons identify tool a
 
 The startup header lists the instructions and resources Pi loaded. The editor border indicates the current thinking level. The footer updates as the model uses context and reports usage.
 
+Sent messages also collapse explicit local image paths and attached images into short labels. Press `Ctrl+O` to expand their original paths and show attachments, or click the image summary in fullscreen mode. Code, existing Markdown links, and ambiguous unquoted paths with spaces inside prose stay literal. Image visibility and width still follow `/settings`; saved messages and model payloads keep their original content.
+
 Pi does not ask before every tool call. Review commands and changed files, and use a sandbox for untrusted or unattended work. See [Security](security.md).
+
+## Track multi-step work
+
+The built-in `tasks` tool lets the main agent maintain a plan for the current session branch. Tasks have stable IDs and states: `pending`, `in_progress`, `completed`, or `cancelled`. Parallel work can have several tasks in progress. Completed and cancelled items remain available rather than being deleted.
+
+A compact **TODO → Tasks** tree stays above the editor, showing progress, current work, and the next pending item. Press `F3` to expand the retained list, including completed and cancelled work; use `Alt+PageUp` and `Alt+PageDown` to scroll it without changing your draft. Completed items are green and struck through, active items use the accent color, and pending or cancelled items are muted. Cancelled work is counted separately, not as completed. These shortcuts are [configurable](keybindings.md#tasks).
+
+Run `/tasks` for the full, scrollable, view-only pane. It follows your Rex/TUI preferences and accepts `--tui`, `--rex`, `--split`, `--floating`, and `--minimized`. Repeating the command reuses the pane. The pinned tree stays hidden while the pane is opening, open, or minimized, and returns when it closes.
+
+Task state survives restart and compaction and follows the active branch, not the project or other conversations. The agent updates it as work changes, including steering; viewing or updating metadata does not execute tasks, launch jobs, delegate work, or make helper model calls. Native sub-agents do not receive independent task lists. SDK hosts opt in with `createTasksExtension()`.
 
 ## Answer clarification questions
 

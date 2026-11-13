@@ -72,7 +72,7 @@ SDK hosts opt in with `createAutoNameExtension()` and `createJobsExtension()` th
 
 ## Choose how to branch
 
-Pi stores entries as a tree, so returning to an earlier point does not erase the branch you leave.
+Pi stores entries as a tree, so returning to an earlier point does not erase the branch you leave. The native [task list](usage.md#track-multi-step-work) follows the active branch too: each branch inherits task state up to its branch point, and later updates stay on that branch. Compaction does not remove retained task metadata.
 
 | Action | Result | Use it when |
 |---|---|---|
@@ -93,6 +93,8 @@ The model receives the active branch, not every branch in the session file. Pi c
 The footer shows current context usage. By default Pi prepares a summary in the background at 75%, then waits for and applies it at 85%, before the next model request. The summary replaces completed history; every message added after the frozen boundary stays verbatim. Original session entries are not deleted.
 
 Run `/compact` to compact manually. You can add instructions when the summary should preserve a particular topic or decision. Configure automatic compaction and retained history through [Settings](settings.md#compaction).
+
+Pending steering and follow-up messages remain queued through compaction, including failed or cancelled attempts. Threshold compaction keeps newly accepted, unanswered inputs verbatim for their first model delivery.
 
 Compaction can fail if the provider is unavailable or cannot accept the summarization request. Correct the provider problem and run `/compact` again. Disabling automatic compaction does not disable the manual command.
 

@@ -3,7 +3,7 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { contentText } from "@earendil-works/pi-ai";
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
-import { icon } from "../../modes/interactive/icons.ts";
+import { iconPrefix } from "../../modes/interactive/icons.ts";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import type { MessageRenderer, ToolRenderContext, ToolRenderResultOptions } from "../extensions/types.ts";
 import {
@@ -82,7 +82,7 @@ export function renderSubagentCall(
 			theme.fg(
 				"toolTitle",
 				theme.bold(
-					`${icon(input.action === "wait" ? "clock" : "agent")}  ${labels[input.action ?? ""] ?? "Sub-agent"}`,
+					`${iconPrefix(input.action === "wait" ? "clock" : "agent")}${labels[input.action ?? ""] ?? "Sub-agent"}`,
 				),
 			) +
 			theme.fg(
@@ -148,7 +148,7 @@ export const renderSubagentMessage: MessageRenderer = (message, options, theme) 
 			heading:
 				theme.fg(
 					"customMessageLabel",
-					theme.bold(`${icon("agent")}  Sub-agent${heading ? ` ${heading[1].slice(0, 8)}` : ""}`),
+					theme.bold(`${iconPrefix("agent")}Sub-agent${heading ? ` ${heading[1].slice(0, 8)}` : ""}`),
 				) +
 				theme.fg(stateColor(status), ` · ${stateLabel(status)}`) +
 				(heading ? theme.fg("muted", ` · ${compactPreview(`${heading[2]}: ${heading[3]}`)}`) : ""),

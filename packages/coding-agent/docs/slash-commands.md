@@ -27,6 +27,7 @@ Extensions, prompt templates, and skills can add commands. The command menu in P
 | `/pause` | Pause the main agent and sub-agents safely; Enter in the menu continues |
 | `/name [name]` | Set the session display name, or show the current name when omitted |
 | `/session` | Show current session information and statistics |
+| `/tasks [pane flags]` | Open the current branch's read-only task tree; reuses its Rex/TUI pane |
 | `/tree` | Navigate the session tree |
 | `/fork` | Create a new session from an earlier user message |
 | `/clone` | Duplicate the current session at its current position |

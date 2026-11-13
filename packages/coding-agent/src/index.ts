@@ -440,6 +440,7 @@ export { createRecallExtension } from "./extensions/recall/index.ts";
 export { createRecoveryExtension } from "./extensions/recovery/index.ts";
 export { createRexExtension, createRexToolDefinition } from "./extensions/rex/index.ts";
 export { createSubagentExtension } from "./extensions/subagents/index.ts";
+export { createTasksExtension } from "./extensions/tasks/index.ts";
 export { createToolSearchExtension } from "./extensions/tool-search/index.ts";
 // Main entry point
 export { type MainOptions, main } from "./main.ts";

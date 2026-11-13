@@ -26,7 +26,7 @@ import {
 	type TuiMode,
 	type WarningSettings,
 } from "../../../core/settings-manager.ts";
-import { type IconName, type IconPreset, icon } from "../icons.ts";
+import { type IconName, type IconPreset, iconPrefix } from "../icons.ts";
 import {
 	getSettingsListTheme,
 	parseAutoThemeSetting,
@@ -95,7 +95,7 @@ class SettingsIconList extends SettingsList {
 			items.map((item) => ({
 				...item,
 				get label() {
-					return display.active ? `${icon(SETTINGS_ICONS[item.id] ?? "settings")}  ${item.label}` : item.label;
+					return display.active ? `${iconPrefix(SETTINGS_ICONS[item.id] ?? "settings")}${item.label}` : item.label;
 				},
 			})),
 			...options,

@@ -48,6 +48,9 @@ const APP_KEYBINDINGS = {
 	},
 	"app.model.select": { defaultKeys: "ctrl+l", description: "Open model selector" },
 	"app.tools.expand": { defaultKeys: "ctrl+o", description: "Toggle tool output" },
+	"app.tasks.expand": { defaultKeys: "f3", description: "Expand or collapse the pinned task list" },
+	"app.tasks.pageUp": { defaultKeys: "alt+pageUp", description: "Scroll the expanded task list up" },
+	"app.tasks.pageDown": { defaultKeys: "alt+pageDown", description: "Scroll the expanded task list down" },
 	"app.thinking.toggle": {
 		defaultKeys: "ctrl+t",
 		description: "Toggle thinking blocks",

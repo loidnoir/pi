@@ -13,6 +13,7 @@
 - MCP results no longer use a separate 20 KB clip or expose `details.fullOutputPath`; follow the model-facing `artifact://...` reference with `read`. Custom `read` overrides must forward artifact references to the built-in definition with the current tool context.
 - `BashOperations.onData` now returns `void | Promise<void>`. Streaming adapters must honor a returned promise for backpressure; callbacks must not return incidental values such as the result of `chunks.push()`.
 - `PaneControls` implementations must provide `setTitle(title)`. Direct `SubagentManager` hosts must provide `getSystemPrompt()` for instruction-aware labels; extension runtime action bindings must implement `appendUsage()`.
+- Removed `FooterComponent.setAutoCompactEnabled()` with the redundant footer indicator. Compaction behavior remains controlled by `AgentSession.setAutoCompactionEnabled()`.
 
 ### Added
 
@@ -40,11 +41,12 @@
 - Added native `/effort` as another entry point to the model-aware `/thinking` picker, completion, and level controls, keeping `max` distinct from `xhigh`.
 - Added the built-in `/fast [on|off|status]` command for Codex priority-tier requests, with session/branch persistence and native footer status instead of a custom footer.
 - Added shared Nerd Font question, radio, checkbox, and submission icons to `ask` forms, with Unicode fallbacks through the existing icon preset.
+- Added native branch-persisted `tasks` with atomic list/add/update controls, retained completed/cancelled states, a pinned TODO tree, configurable expansion/paging, and a shared read-only `/tasks` pane. The main agent manages metadata; it does not execute tasks or create helper model calls. SDK hosts can register `createTasksExtension()`.
 
 ### Changed
 
-- Simplified the default footer to one line: directory and input/output token totals on the left, context and model on the right. Branch/session labels, cache statistics, and cost are no longer shown in the footer; `/session` retains detailed usage.
-- Added semantic action icons to thinking and tool blocks, plus language-specific Nerd Font file icons in tool paths and search/listing results. Icons have a two-space label gap, detected reasoning headings use action-specific icons, waiting calls use a clock, and read headers use an eye icon and separate the action from the path with a muted em dash. Job/sub-agent actions and completion notices now show compact human-readable summaries with built-in-style outer padding, spaced title/description/status sections, and expandable original details.
+- Simplified the default footer to one line: directory and input/output token totals on the left, context and model on the right. Context, model, and effort share muted bullet separators, without the redundant `(auto)` indicator. Branch/session labels, cache statistics, and cost are no longer shown in the footer; `/session` retains detailed usage.
+- Added semantic action icons to thinking and tool blocks, plus language-specific Nerd Font file icons in tool paths and search/listing results. Icon-label pairs use one separator space, with an extra optical column for the wider Nerd job, tree, keyboard, and terminal glyphs (including shell-file labels); separate tool-header groups use two spaces, detected reasoning headings use action-specific icons, waiting calls use a clock, and read headers use an eye icon and separate the action from the path with a muted em dash. Job/sub-agent actions and completion notices now show compact human-readable summaries with built-in-style outer padding, spaced title/description/status sections, and expandable original details.
 - Slash-command suggestions now show action-specific icons for built-ins, extensions, prompt templates, and skills without changing the command inserted into the editor.
 - All `/settings` rows and settings-owned submenu rows now show semantic icons without changing filtering, ordering, or selected values.
 - Job detail views now highlight Bash commands and preserve emitted ANSI output colors while filtering unsafe terminal controls; stored logs remain unchanged.
@@ -62,6 +64,7 @@
 - Replaced the built-in `grep` and `find` subprocess backends with one in-process Rust Node-API addon. Searches accept multiple paths/globs and exclusions; grep adds automatic PCRE2 fallback, multiline patterns, file line ranges, matching-file pagination, and match-centred long-line snippets. The existing tool names and remote-operation extension points remain available.
 - Enabled `grep` and `find` by default alongside `read`, `bash`, `edit`, and `write`. Their system-prompt guidance prefers the dedicated tools over shell searches and is omitted when the corresponding tool is disabled or hidden. Explicit tool selections and resumed sessions' recorded tool selections remain unchanged.
 - Built-ins, extensions, and MCP results now share configurable estimated-token inline budgets with a byte safety ceiling. Images and nested programmatic results remain available without model-preview clipping.
+- Sent user messages now collapse explicit local image paths and attachments into compact labels, with configurable chat expansion, fullscreen clicks, and file links. Original text, attachment order, history, and model payloads are preserved.
 
 ### Fixed
 
@@ -108,6 +111,8 @@
 - Improved URL reads with one browser User-Agent retry on HTTP 403, one bounded `Retry-After` retry on HTTP 429 without identity rotation, a shared network deadline, and actionable bot-protection diagnostics. Recognized HTTP 200 challenge pages are unreadable rather than successful documents; browser execution remains explicit.
 - Fixed read call labels showing `(byte null)` for unused byte offsets and hiding line ranges or document/browser labels.
 - Browser reads now reuse a project-owned Chromium process across Pi processes, lease separate tabs per read, and preserve sandboxing and explicit-only browser execution. Cancellation closes only the cancelled tab; the browser exits after the last owning Pi process disconnects.
+- Fixed compaction losing pending steering and follow-up messages during interrupted preparation or summarizing newly accepted inputs before their first model delivery. Queue identity, text, and image payloads remain intact.
+- Fixed restored minimized Rex panes retaining their initial empty frame instead of live job content; minimized views now receive coalesced frame updates.
 
 ## [1.5.0] - 2026-11-02
 

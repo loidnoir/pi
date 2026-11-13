@@ -1,6 +1,6 @@
 import { type Component, Loader, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
 import type { WorkingIndicatorOptions } from "../../../core/extensions/index.ts";
-import { icon } from "../icons.ts";
+import { icon, iconPrefix } from "../icons.ts";
 import { theme } from "../theme/theme.ts";
 import { CountdownTimer } from "./countdown-timer.ts";
 import { keyText } from "./keybinding-hints.ts";
@@ -44,7 +44,7 @@ export class StatusIndicator extends Loader {
 	override render(width: number): string[] {
 		if (!this.pauseStatus) return super.render(width);
 		const label = this.pauseStatus === "pausing" ? "Pausing…" : "Paused";
-		return ["", truncateToWidth(` ${this.pauseColorFn(`${icon("pause")}  ${label}`)}`, width, "")];
+		return ["", truncateToWidth(` ${this.pauseColorFn(`${iconPrefix("pause")}${label}`)}`, width, "")];
 	}
 
 	renderInBorder(width: number): string {

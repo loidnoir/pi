@@ -11,7 +11,7 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { MarkdownTransformer } from "../../../core/extensions/types.ts";
-import { icon } from "../icons.ts";
+import { iconPrefix } from "../icons.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 import { createMarkdownTransform } from "./markdown-transform.ts";
 import { reasoningHeadingIcon, ThinkingMarkdown } from "./thinking-markdown.ts";
@@ -216,7 +216,7 @@ export class AssistantMessageComponent extends Container {
 						);
 				const hiddenIcon =
 					reasoningHeadingIcon(thinking.replace(/^[#*_]+\s*/, "")) === "clock" ? "clock" : "thinking";
-				const prefix = `${" ".repeat(this.outputPad)}${icon(hiddenIcon)}  `;
+				const prefix = `${" ".repeat(this.outputPad)}${iconPrefix(hiddenIcon)}`;
 				const thinkingRow = hidden
 					? new HStack([
 							{
