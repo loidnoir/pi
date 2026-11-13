@@ -48,34 +48,39 @@ describe("chat action icons", () => {
 		expect(unicode).not.toBe(nerd);
 	});
 
-	test.each(["write", "edit", "ls"] as const)("keeps %s icon-label pairs tight and header groups separate", (name) => {
-		const path = "日本語 file.ts";
-		const args = { path, content: "", edits: [] };
-		const original = structuredClone(args);
-		const component = new ToolExecutionComponent(
-			name,
-			`spacing-${name}`,
-			args,
-			{},
-			renderers[name],
-			tui,
-			process.cwd(),
-		);
-		const actionIcon = name === "ls" ? "folder" : name;
-		for (const preset of ["nerd", "unicode", "nerd"] as const) {
-			setIconPreset(preset);
-			component.invalidate();
-			const glyph = fileIcon(path, name === "ls" ? "directory" : "file");
-			const fileLabel = glyph ? `${glyph} ${path}` : path;
-			expect(stripAnsi(component.render(120).join("\n"))).toContain(`${icon(actionIcon)} ${name}  ${fileLabel}`);
-			for (const width of [4, 8, 12, 30])
-				for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
-		}
-		expect(args).toEqual(original);
-	});
+	test.each(["read", "write", "edit", "ls"] as const)(
+		"keeps %s icon-label pairs tight and header groups separate",
+		(name) => {
+			const path = "日本語 file.ts";
+			const args = { path, content: "", edits: [] };
+			const original = structuredClone(args);
+			const component = new ToolExecutionComponent(
+				name,
+				`spacing-${name}`,
+				args,
+				{},
+				renderers[name],
+				tui,
+				process.cwd(),
+			);
+			const actionIcon = name === "ls" ? "folder" : name;
+			for (const preset of ["nerd", "unicode", "nerd"] as const) {
+				setIconPreset(preset);
+				component.invalidate();
+				const glyph = fileIcon(path, name === "ls" ? "directory" : "file");
+				const fileLabel = glyph ? `${glyph} ${path}` : path;
+				const separator = name === "read" ? "  ·  " : "  ";
+				expect(stripAnsi(component.render(120).join("\n"))).toContain(
+					`${icon(actionIcon)} ${name}${separator}${fileLabel}`,
+				);
+				for (const width of [4, 8, 12, 30])
+					for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+			}
+			expect(args).toEqual(original);
+		},
+	);
 
 	test("uses the eye glyph and separates the read action from the file label", () => {
-		setIconPreset("nerd");
 		const component = new ToolExecutionComponent(
 			"read",
 			"read-eye-icon",
@@ -85,10 +90,20 @@ describe("chat action icons", () => {
 			tui,
 			process.cwd(),
 		);
+		for (const preset of ["nerd", "unicode", "nerd"] as const) {
+			setIconPreset(preset);
+			component.invalidate();
+			const rendered = component.render(100).join("\n");
+			const pathLabel = preset === "nerd" ? "\ue628 src/example.ts" : "src/example.ts";
+			expect(stripAnsi(rendered)).toContain(`${icon("read")} read  ·  ${pathLabel}`);
+			expect(stripAnsi(rendered)).not.toMatch(/[-—]/u);
+			expect(rendered).toContain(
+				`${theme.fg("toolTitle", theme.bold(`${iconPrefix("read")}read`))}${theme.fg("muted", "  ·  ")}`,
+			);
+			for (const width of [4, 8, 12, 30])
+				for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
 		expect(icon("read")).toBe("\u{f0208}");
-		const rendered = component.render(100).join("\n");
-		expect(stripAnsi(rendered)).toContain(`${icon("read")} read — \ue628 src/example.ts`);
-		expect(rendered).toContain(theme.fg("muted", " — "));
 	});
 
 	test("uses a skill icon for compact instruction reads", () => {

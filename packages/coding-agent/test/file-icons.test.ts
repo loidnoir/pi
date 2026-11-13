@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { hyperlink, resetCapabilitiesCache, setCapabilities, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { getReadmePath } from "../src/config.ts";
@@ -80,14 +81,14 @@ describe("file-type path icons", () => {
 				theme.fg("accent", "\uf120  ") + hyperlink(theme.fg("accent", path), `file:///project/${path}`),
 			);
 			const component = tool("read", { path });
-			expect(plain(component)).toContain(`read — \uf120  ${path}`);
+			expect(plain(component)).toContain(`read  ·  \uf120  ${path}`);
 			for (const width of [4, 8, 12, 30])
 				for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 			setIconPreset("unicode");
 			component.invalidate();
 			expect(fileIcon(path)).toBe("");
 			expect(fileIconPrefix(path)).toBe("");
-			expect(plain(component)).toContain(`read — ${path}`);
+			expect(plain(component)).toContain(`read  ·  ${path}`);
 		},
 	);
 
@@ -101,12 +102,16 @@ describe("file-type path icons", () => {
 		expect(fileIcon(path, "directory")).toBe("");
 		setCapabilities({ images: null, trueColor: true, hyperlinks: true });
 		expect(renderToolPath(path, theme, "/project")).toBe(theme.fg("accent", path));
-		expect(plain(tool("read", { path }))).toContain(`read — ${path}`);
+		expect(plain(tool("read", { path }))).toContain(`read  ·  ${path}`);
 	});
 
 	test.each([
-		{ name: "read", args: { path: "src/file.ts", offset: 9, limit: 2 }, expected: "read — \ue628 src/file.ts:9-10" },
-		{ name: "read", args: { file_path: "src/file.tsx" }, expected: "read — \ue7ba src/file.tsx" },
+		{
+			name: "read",
+			args: { path: "src/file.ts", offset: 9, limit: 2 },
+			expected: "read  ·  \ue628 src/file.ts:9-10",
+		},
+		{ name: "read", args: { file_path: "src/file.tsx" }, expected: "read  ·  \ue7ba src/file.tsx" },
 		{ name: "write", args: { path: "src/file.py", content: "" }, expected: "write  \ue73c src/file.py" },
 		{ name: "edit", args: { path: "src/file.rs", edits: [] }, expected: "edit  \ue7a8 src/file.rs" },
 		{ name: "ls", args: { path: "directory.ts" }, expected: "ls  \uf07b directory.ts" },
@@ -116,13 +121,64 @@ describe("file-type path icons", () => {
 	});
 
 	test("decorates compact docs and resource reads but keeps skill labels semantic", () => {
-		expect(plain(tool("read", { path: getReadmePath() }))).toContain("read docs — \ue73e README.md");
+		expect(plain(tool("read", { path: getReadmePath() }))).toContain("read docs  ·  \ue73e README.md");
 		expect(plain(tool("read", { path: join(process.cwd(), ".pi", "AGENTS.md") }))).toContain(
-			"read resource — \ue73e .pi/AGENTS.md",
+			"read resource  ·  \ue73e .pi/AGENTS.md",
 		);
 		const skill = plain(tool("read", { path: "/tmp/example/SKILL.md" }));
 		expect(skill).toContain(`${icon("skill")} [skill] example`);
 		expect(skill).not.toContain("\ue73e");
+		expect(skill).not.toContain("  ·  ");
+	});
+
+	test.each([
+		{ path: "src/example.ts", label: "src/example.ts", action: "read" },
+		{ path: getReadmePath(), label: "README.md", action: "read docs" },
+		{ path: join(process.cwd(), ".pi", "AGENTS.md"), label: ".pi/AGENTS.md", action: "read resource" },
+	])(
+		"separates $action and its file group with a muted middle dot and two spaces on each side",
+		({ path, label, action }) => {
+			const args = { path, offset: 9, limit: 2 };
+			const original = structuredClone(args);
+			const component = tool("read", args);
+			for (const preset of ["nerd", "unicode", "nerd"] as const) {
+				setIconPreset(preset);
+				component.invalidate();
+				const rendered = component.render(300).join("\n");
+				const header = stripAnsi(rendered).trimStart();
+				expect(header.startsWith(`${icon("read")} ${action}  ·  ${fileIconPrefix(path)}${label}:9-10`)).toBe(true);
+				expect(rendered).toContain(theme.fg("muted", "  ·  "));
+				expect(header).not.toContain("—");
+				expect(header).not.toContain(`${action} - `);
+				for (const width of [4, 8, 12, 30])
+					for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+			}
+			expect(args).toEqual(original);
+		},
+	);
+
+	test("preserves filename dashes, page ranges, link targets and read content", () => {
+		setCapabilities({ images: null, trueColor: true, hyperlinks: true });
+		const path = "src/my-file — 日本語.txt";
+		const args = { path, pages: "2-4", format: "text" };
+		const output = "source - punctuation — stays · unchanged\npage range 2-4";
+		const result = { content: [{ type: "text", text: output }], isError: false };
+		const original = structuredClone({ args, result });
+		const component = tool("read", args);
+		component.updateResult(result);
+		component.setExpanded(true);
+		const rendered = component.render(300).join("\n");
+		expect(stripAnsi(rendered)).toContain(`read  ·  ${fileIconPrefix(path)}${path} (pages 2-4, text)`);
+		expect(stripAnsi(rendered)).not.toMatch(/\bread +[-—] +/u);
+		expect(rendered).toContain(theme.fg("muted", "  ·  "));
+		expect(rendered).toContain(hyperlink(theme.fg("accent", path), pathToFileURL(join(process.cwd(), path)).href));
+		expect(
+			stripAnsi(rendered)
+				.split("\n")
+				.map((line) => line.trim())
+				.join("\n"),
+		).toContain(output);
+		expect({ args, result }).toEqual(original);
 	});
 
 	test("keeps only the path inside its OSC 8 link", () => {
@@ -331,7 +387,7 @@ describe("file-type path icons", () => {
 		expect(fileIcon("file.ts")).toBe("");
 		expect(fileIconPrefix("src/")).toBe("");
 		expect(stripAnsi(renderToolPath("file.ts", theme, "/project"))).toBe("file.ts");
-		expect(plain(tool("read", { path: "src/file.ts" }))).toContain("read — src/file.ts");
-		expect(plain(tool("read", { path: getReadmePath() }))).toContain("read docs — README.md");
+		expect(plain(tool("read", { path: "src/file.ts" }))).toContain("read  ·  src/file.ts");
+		expect(plain(tool("read", { path: getReadmePath() }))).toContain("read docs  ·  README.md");
 	});
 });

@@ -56,7 +56,7 @@ function styledReadLineRange(args: ReadRenderArgs | undefined, theme: Theme): st
 function formatReadCall(args: ReadRenderArgs | undefined, theme: Theme, cwd: string): string {
 	const path = str(args?.file_path ?? args?.path);
 	const pathDisplay = renderToolPath(path, theme, cwd);
-	return `${theme.fg("toolTitle", theme.bold(`${iconPrefix("read")}read`))}${theme.fg("muted", " — ")}${pathDisplay}${styledReadLineRange(args, theme)}`;
+	return `${theme.fg("toolTitle", theme.bold(`${iconPrefix("read")}read`))}${theme.fg("muted", "  ·  ")}${pathDisplay}${styledReadLineRange(args, theme)}`;
 }
 function trimTrailingEmptyLines(lines: string[]): string[] {
 	let end = lines.length;
@@ -127,7 +127,7 @@ function formatCompactReadCall(
 
 	return (
 		theme.fg("toolTitle", theme.bold(`${iconPrefix("read")}read ${classification.kind}`)) +
-		theme.fg("muted", " — ") +
+		theme.fg("muted", "  ·  ") +
 		renderToolPath(str(args?.file_path ?? args?.path), theme, cwd, { displayPath: classification.label }) +
 		styledReadLineRange(args, theme) +
 		expandHint
