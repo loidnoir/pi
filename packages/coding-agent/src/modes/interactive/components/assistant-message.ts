@@ -14,6 +14,7 @@ import type { MarkdownTransformer } from "../../../core/extensions/types.ts";
 import { icon } from "../icons.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 import { createMarkdownTransform } from "./markdown-transform.ts";
+import { reasoningHeadingIcon, ThinkingMarkdown } from "./thinking-markdown.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -200,35 +201,32 @@ export class AssistantMessageComponent extends Container {
 							"thinking",
 							thinking,
 							() =>
-								new Markdown(
+								new ThinkingMarkdown(
 									thinking,
-									0,
-									0,
+									this.outputPad,
 									this.markdownTheme,
-									{
-										color: (text: string) => theme.fg("thinkingText", text),
-										italic: true,
-									},
-									{
-										transform: createMarkdownTransform(
-											"assistant-thinking",
-											() => this.isStreaming,
-											this.markdownTransformers,
-											this.messageId,
-											this.timestamp,
-										),
-									},
+									createMarkdownTransform(
+										"assistant-thinking",
+										() => this.isStreaming,
+										this.markdownTransformers,
+										this.messageId,
+										this.timestamp,
+									),
 								),
 						);
-				const prefix = `${" ".repeat(this.outputPad)}${icon("thinking")} `;
-				const thinkingRow = new HStack([
-					{
-						component: new Text(theme.fg("thinkingText", prefix), 0, 0),
-						basis: visibleWidth(prefix),
-						shrink: 0,
-					},
-					{ component: thinkingComponent, basis: 0, grow: 1, minSize: 1 },
-				]);
+				const hiddenIcon =
+					reasoningHeadingIcon(thinking.replace(/^[#*_]+\s*/, "")) === "clock" ? "clock" : "thinking";
+				const prefix = `${" ".repeat(this.outputPad)}${icon(hiddenIcon)}  `;
+				const thinkingRow = hidden
+					? new HStack([
+							{
+								component: new Text(theme.fg("thinkingText", prefix), 0, 0),
+								basis: visibleWidth(prefix),
+								shrink: 0,
+							},
+							{ component: thinkingComponent, basis: 0, grow: 1, minSize: 1 },
+						])
+					: thinkingComponent;
 				addVisibleChild(
 					new MouseRegion(thinkingRow, (event) => {
 						if (event.type !== "click" || event.button !== "left") return undefined;

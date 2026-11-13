@@ -92,7 +92,7 @@ const COLLAPSED_ARGS_CHARS = 100;
  * line below the title, with strings shown raw and continuation lines indented.
  */
 export function formatToolCallWithArgs(title: string, args: unknown, theme: Theme, expanded: boolean): string {
-	const header = theme.fg("toolTitle", theme.bold(`${icon("tool")} ${title}`));
+	const header = theme.fg("toolTitle", theme.bold(`${icon("tool")}  ${title}`));
 	if (args == null) return header;
 	const entries =
 		typeof args === "object" && !Array.isArray(args)

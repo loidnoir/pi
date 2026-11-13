@@ -1,9 +1,10 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.ts";
 import type { ContextUsage } from "../src/core/extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.ts";
 import { FooterComponent, formatCwdForFooter } from "../src/modes/interactive/components/footer.ts";
+import { icon, setIconPreset } from "../src/modes/interactive/icons.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
@@ -112,6 +113,74 @@ describe("FooterComponent single-line layout", () => {
 
 	beforeEach(() => {
 		vi.stubEnv("PI_EXPERIMENTAL", "0");
+	});
+
+	afterEach(() => setIconPreset("unicode"));
+
+	it("uses the current shared pause icon for recovery status without changing its text", () => {
+		const statuses = new Map([["recovery", "Paused · /pause to continue"]]);
+		const footer = new FooterComponent(createSession(), createFooterData(statuses));
+		for (const preset of ["nerd", "unicode"] as const) {
+			setIconPreset(preset);
+			footer.invalidate();
+			expect(stripAnsi(footer.render(160)[0])).toContain(`${icon("pause")}  Paused · /pause to continue`);
+			for (const width of [0, 1, 8, 40, 160])
+				expect(visibleWidth(footer.render(width)[0])).toBeLessThanOrEqual(width);
+		}
+		expect(statuses.get("recovery")).toBe("Paused · /pause to continue");
+	});
+
+	it.each(["unicode", "nerd"] as const)("shows active fast mode before thinking on the right (%s)", (preset) => {
+		setIconPreset(preset);
+		const statuses = new Map([["fast", "fast (priority)"]]);
+		const footer = new FooterComponent(
+			createSession({ reasoning: true, thinkingLevel: "xhigh" }),
+			createFooterData(statuses),
+		);
+		const text = stripAnsi(footer.render(160)[0]);
+		expect(text.endsWith(`test-model • ${icon("fast")}  xhigh`)).toBe(true);
+		expect(text).not.toContain("fast (priority)");
+		expect(statuses.get("fast")).toBe("fast (priority)");
+		for (const width of [0, 1, 8, 40, 160]) expect(visibleWidth(footer.render(width)[0])).toBeLessThanOrEqual(width);
+		setIconPreset(preset === "nerd" ? "unicode" : "nerd");
+		footer.invalidate();
+		expect(stripAnsi(footer.render(160)[0])).toContain(`${icon("fast")}  xhigh`);
+	});
+
+	it.each([
+		{ options: { reasoning: true }, suffix: () => `test-model • ${icon("fast")}  thinking off` },
+		{ options: {}, suffix: () => `test-model ${icon("fast")}` },
+		{
+			options: {
+				reasoning: true,
+				thinkingLevel: "high",
+				routedModel: { model: { id: "physical" }, thinkingLevel: "medium" },
+			},
+			suffix: () => `test-model • high → physical • ${icon("fast")}  medium`,
+		},
+		{
+			options: { routedModel: { model: { id: "physical" } } },
+			suffix: () => `test-model → physical ${icon("fast")}`,
+		},
+	])("keeps the fast icon at the rightmost model/thinking display: $options", ({ options, suffix }) => {
+		const footer = new FooterComponent(
+			createSession(options),
+			createFooterData(new Map([["fast", "fast (priority)"]])),
+		);
+		expect(stripAnsi(footer.render(160)[0]).endsWith(suffix())).toBe(true);
+	});
+
+	it("keeps inactive fast mode distinct and hides the flash when fast mode is off", () => {
+		const statuses = new Map([["fast", "fast (inactive)"]]);
+		const footer = new FooterComponent(
+			createSession({ reasoning: true, thinkingLevel: "xhigh" }),
+			createFooterData(statuses),
+		);
+		expect(stripAnsi(footer.render(160)[0])).toContain("fast (inactive)");
+		expect(stripAnsi(footer.render(160)[0])).not.toContain(icon("fast"));
+		statuses.delete("fast");
+		expect(stripAnsi(footer.render(160)[0])).not.toContain("fast");
+		expect(stripAnsi(footer.render(160)[0])).not.toContain(icon("fast"));
 	});
 
 	it("puts the directory and token counts on the left and context/model on the right", () => {

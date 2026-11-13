@@ -169,7 +169,7 @@ describe("AssistantMessageComponent", () => {
 		);
 		expect(component.render(80).map((line) => stripAnsi(line).trim())).toEqual([
 			"",
-			`${icon("thinking")} Thinking...`,
+			`${icon("thinking")}  Thinking...`,
 			"",
 			"answer",
 		]);
@@ -231,7 +231,7 @@ describe("AssistantMessageComponent", () => {
 		component.setOutputPad(0);
 		const updatedLines = component.render(80).map((line) => stripAnsi(line));
 		expect(updatedLines.some((line) => line.startsWith("hello"))).toBe(true);
-		expect(updatedLines.some((line) => line.startsWith(`${icon("thinking")} reasoning`))).toBe(true);
+		expect(updatedLines.some((line) => line.startsWith(`${icon("thinking")}  reasoning`))).toBe(true);
 	});
 
 	test("updates reasoning icons with the preset without changing Markdown source", () => {
@@ -251,12 +251,83 @@ describe("AssistantMessageComponent", () => {
 		expect(stripAnsi(component.render(80).join("\n"))).toContain(icon("thinking"));
 		setIconPreset("unicode");
 		component.invalidate();
-		expect(stripAnsi(component.render(80).join("\n"))).toContain(`${icon("thinking")} Inspecting`);
+		expect(stripAnsi(component.render(80).join("\n"))).toContain(`${icon("thinking")}  Inspecting`);
 		expect(sources.every((source) => source === "# Inspecting the renderer\n\nNext step")).toBe(true);
 		expect(message.content).toEqual([{ type: "thinking", thinking: "# Inspecting the renderer\n\nNext step" }]);
 	});
 
-	test.each([1, 2, 8, 20, 80])("keeps icon-prefixed reasoning within %i columns", (width) => {
+	test.each([
+		"Waiting for agent tests",
+		"**Waiting for checks**",
+		"# Waiting for a job",
+		"Waiting...",
+		"**Waiting**",
+		"Waiting for checks.",
+	])("uses a clock for waiting reasoning: %s", (thinking) => {
+		initTheme("dark");
+		setIconPreset("nerd");
+		const message = createAssistantMessage([{ type: "thinking", thinking }]);
+		const component = new AssistantMessageComponent(message);
+		const rendered = stripAnsi(component.render(80).join("\n"));
+		expect(rendered).toContain(`${icon("clock")}  `);
+		expect(rendered).not.toContain(icon("thinking"));
+		expect(message.content).toEqual([{ type: "thinking", thinking }]);
+	});
+
+	test.each([
+		["Designing the wrapper", "thinking"],
+		["Waiting...", "clock"],
+		["**Awaiting** the checks", "clock"],
+	] as const)("preserves hidden thinking labels for %s", (thinking, name) => {
+		initTheme("dark");
+		const component = new AssistantMessageComponent(createAssistantMessage([{ type: "thinking", thinking }]), true);
+		const rendered = stripAnsi(component.render(80).join("\n"));
+		expect(rendered).toContain(`${icon(name)}  Thinking...`);
+		expect(rendered).not.toContain(thinking);
+	});
+
+	test("decorates mixed headings in one thinking block without changing message or transformer text", () => {
+		initTheme("dark");
+		setIconPreset("nerd");
+		const thinking = [
+			"Delegating pause-status work",
+			"Finishing the status fix",
+			"Refining paused-state display",
+			"Designing paused-state priority",
+			"Designing pause wrapper",
+			"Locating status update path",
+			"Reviewing the status fix",
+			"Checking the paused display",
+			"Awaiting the tests",
+		].join("\n\n");
+		const message = createAssistantMessage([{ type: "thinking", thinking }]);
+		const sources: string[] = [];
+		const component = new AssistantMessageComponent(message, false, undefined, "Thinking...", 1, [
+			(markdown, context) => {
+				expect(context.messageType).toBe("assistant-thinking");
+				expect(context.availableWidth).toBe(76);
+				sources.push(markdown);
+				return markdown;
+			},
+		]);
+		const rendered = stripAnsi(component.render(80).join("\n"));
+		for (const [name, text] of [
+			["thinking", "Delegating"],
+			["thinking", "Finishing"],
+			["sparkles", "Refining"],
+			["edit", "Designing paused-state"],
+			["edit", "Designing pause wrapper"],
+			["location", "Locating"],
+			["search", "Reviewing"],
+			["read", "Checking"],
+			["clock", "Awaiting"],
+		] as const)
+			expect(rendered).toContain(`${icon(name)}  ${text}`);
+		expect(sources).toEqual([thinking]);
+		expect(message.content).toEqual([{ type: "thinking", thinking }]);
+	});
+
+	test.each([0, 1, 2, 8, 20, 80])("keeps icon-prefixed reasoning within %i columns", (width) => {
 		initTheme("dark");
 		setIconPreset("nerd");
 		const component = new AssistantMessageComponent(

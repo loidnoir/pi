@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import { createAllToolRenderers } from "../src/core/tools/renderers/index.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { type IconName, icon, setIconPreset } from "../src/modes/interactive/icons.ts";
-import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
 const tui = { requestRender() {} } as unknown as TUI;
@@ -35,13 +35,30 @@ describe("chat action icons", () => {
 			process.cwd(),
 		);
 		const nerd = stripAnsi(component.render(100).join("\n"));
-		expect(nerd.trimStart().startsWith(`${icon(item.icon)} `)).toBe(true);
+		expect(nerd.trimStart().startsWith(`${icon(item.icon)}  `)).toBe(true);
 
 		setIconPreset("unicode");
 		component.invalidate();
 		const unicode = stripAnsi(component.render(100).join("\n"));
-		expect(unicode.trimStart().startsWith(`${icon(item.icon)} `)).toBe(true);
+		expect(unicode.trimStart().startsWith(`${icon(item.icon)}  `)).toBe(true);
 		expect(unicode).not.toBe(nerd);
+	});
+
+	test("uses the eye glyph and separates the read action from the file label", () => {
+		setIconPreset("nerd");
+		const component = new ToolExecutionComponent(
+			"read",
+			"read-eye-icon",
+			{ path: "src/example.ts" },
+			{},
+			renderers.read,
+			tui,
+			process.cwd(),
+		);
+		expect(icon("read")).toBe("\u{f0208}");
+		const rendered = component.render(100).join("\n");
+		expect(stripAnsi(rendered)).toContain(`${icon("read")}  read — \ue628  src/example.ts`);
+		expect(rendered).toContain(theme.fg("muted", " — "));
 	});
 
 	test("uses a skill icon for compact instruction reads", () => {
@@ -55,13 +72,13 @@ describe("chat action icons", () => {
 			tui,
 			process.cwd(),
 		);
-		expect(stripAnsi(component.render(100).join("\n"))).toContain(`${icon("skill")} [skill] example`);
+		expect(stripAnsi(component.render(100).join("\n"))).toContain(`${icon("skill")}  [skill] example`);
 	});
 
 	test("prefixes unknown tools without a registered renderer", () => {
 		setIconPreset("nerd");
 		const component = new ToolExecutionComponent("custom", "custom-icon", {}, {}, undefined, tui, ".");
-		expect(stripAnsi(component.render(100).join("\n"))).toContain(`${icon("tool")} custom`);
+		expect(stripAnsi(component.render(100).join("\n"))).toContain(`${icon("tool")}  custom`);
 	});
 
 	test("keeps background job acknowledgments compact without claiming completion", () => {
@@ -82,7 +99,7 @@ describe("chat action icons", () => {
 			isError: false,
 		});
 		const collapsed = stripAnsi(component.render(100).join("\n"));
-		expect(collapsed).toContain(`${icon("job")} Start background job · Type check`);
+		expect(collapsed).toContain(`${icon("job")}  Start background job · Type check`);
 		expect(collapsed).toContain("Job 12345678 · running");
 		expect(collapsed).not.toContain("completed");
 		expect(collapsed).not.toContain("/tmp/job.log");

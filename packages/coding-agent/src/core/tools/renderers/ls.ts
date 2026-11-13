@@ -20,7 +20,7 @@ type LsRenderArgs = { path?: string; limit?: number };
 function formatLsCall(args: LsRenderArgs | undefined, theme: Theme, cwd: string): string {
 	const limit = args?.limit;
 	const pathDisplay = renderToolPath(str(args?.path), theme, cwd, { emptyFallback: ".", kind: "directory" });
-	let text = `${theme.fg("toolTitle", theme.bold(`${icon("folder")} ls`))} ${pathDisplay}`;
+	let text = `${theme.fg("toolTitle", theme.bold(`${icon("folder")}  ls`))} ${pathDisplay}`;
 	if (limit !== undefined) {
 		text += theme.fg("toolOutput", ` (limit ${limit})`);
 	}

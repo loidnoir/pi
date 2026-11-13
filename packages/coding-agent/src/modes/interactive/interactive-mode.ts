@@ -193,6 +193,7 @@ import { refreshModelCatalogs } from "./model-catalog-refresh.ts";
 import { getModelSearchText } from "./model-search.ts";
 import { type BlockedStatus, ProgramStatusReporter } from "./program-status-reporter.ts";
 import { shareSession } from "./session-share.ts";
+import { withSlashCommandIcons } from "./slash-command-icons.ts";
 import {
 	getAvailableThemes,
 	getAvailableThemesWithPaths,
@@ -542,6 +543,8 @@ export class InteractiveMode {
 
 	// Agent subscription unsubscribe function
 	private unsubscribe?: () => void;
+	private unsubscribeRecovery?: () => void;
+	private recoveryStatus: "pausing" | "paused" | undefined;
 	private signalCleanupHandlers: Array<() => void> = [];
 
 	// Track if editor is in bash mode (text starts with !)
@@ -642,6 +645,10 @@ export class InteractiveMode {
 		this.options = { ...options, tuiMode };
 		this.autoTrustOnReloadCwd = options.autoTrustOnReloadCwd;
 		this.runtimeHost.setBeforeSessionInvalidate(() => {
+			this.unsubscribeRecovery?.();
+			this.unsubscribeRecovery = undefined;
+			this.recoveryStatus = undefined;
+			this.clearStatusIndicator();
 			this.resetExtensionUI();
 		});
 		this.runtimeHost.setRebindSession(async () => {
@@ -864,6 +871,11 @@ export class InteractiveMode {
 			provider.triggerCharacters = [...new Set(triggerCharacters)];
 		}
 
+		provider = withSlashCommandIcons(provider, {
+			builtin: BUILTIN_SLASH_COMMANDS,
+			prompt: this.session.promptTemplates,
+			skill: Array.from(this.skillCommands.keys(), (name) => ({ name })),
+		});
 		this.autocompleteProvider = provider;
 		this.defaultEditor.setAutocompleteProvider(provider);
 		if (this.editor !== this.defaultEditor) {
@@ -2099,6 +2111,7 @@ export class InteractiveMode {
 	 * Initialize the extension system with TUI-based UI context.
 	 */
 	private async bindCurrentSessionExtensions(): Promise<void> {
+		this.subscribeToRecovery();
 		const uiContext = this.createExtensionUIContext();
 		await this.session.bindExtensions({
 			uiContext,
@@ -2452,8 +2465,26 @@ export class InteractiveMode {
 		return true;
 	}
 
+	private subscribeToRecovery(): void {
+		this.unsubscribeRecovery?.();
+		this.unsubscribeRecovery = this.session.recovery.subscribe(() => this.updateRecoveryStatusIndicator());
+		this.updateRecoveryStatusIndicator();
+	}
+
+	private updateRecoveryStatusIndicator(): void {
+		const recovery = this.session.recovery;
+		const held = recovery.isPaused || (!this.session.isStreaming && recovery.needsRecovery);
+		this.recoveryStatus = held ? (recovery.info().status === "pausing" ? "pausing" : "paused") : undefined;
+		if (held && !this.activeStatusIndicator && this.workingVisible) this.showWorkingStatusIndicator();
+		this.activeStatusIndicator?.setPauseStatus(this.recoveryStatus);
+		if (!held && this.activeStatusIndicator?.kind === "working" && !this.session.isStreaming)
+			this.clearStatusIndicator("working");
+		this.ui.requestRender();
+	}
+
 	private showStatusIndicator(indicator: StatusIndicator): void {
 		this.activeStatusIndicator?.dispose();
+		indicator.setPauseStatus(this.recoveryStatus);
 		this.activeStatusIndicator = indicator;
 		this.activeWorkingIndicatorEmbedded = false;
 		this.statusContainer.clear();
@@ -2484,6 +2515,7 @@ export class InteractiveMode {
 		) {
 			this.statusContainer.addChild(this.idleStatus);
 		}
+		if (kind && this.recoveryStatus && this.workingVisible) this.showWorkingStatusIndicator();
 	}
 
 	private showWorkingStatusIndicator(): void {
@@ -2508,7 +2540,10 @@ export class InteractiveMode {
 			this.ui.requestRender();
 			return;
 		}
-		if (this.session.isStreaming && this.activeStatusIndicator?.kind !== "working") {
+		if (
+			(this.session.isStreaming && this.activeStatusIndicator?.kind !== "working") ||
+			(this.recoveryStatus && !this.activeStatusIndicator)
+		) {
 			this.showWorkingStatusIndicator();
 		}
 		this.ui.requestRender();
@@ -2794,7 +2829,11 @@ export class InteractiveMode {
 			setFooter: (factory) => this.setExtensionFooter(factory),
 			setHeader: (factory) => this.setExtensionHeader(factory),
 			setTitle: (title) => this.ui.terminal.setTitle(title),
-			custom: (factory, options) => this.showExtensionCustom(factory, options),
+			custom: (factory, options) => {
+				// Child recovery peers can register during session_start before a dialog holds extension binding.
+				this.updateRecoveryStatusIndicator();
+				return this.showExtensionCustom(factory, options);
+			},
 			pasteToEditor: (text) => this.editor.handleInput(`\x1b[200~${text}\x1b[201~`),
 			setEditorText: (text) => this.editor.setText(text),
 			getEditorText: () => this.editor.getExpandedText?.() ?? this.editor.getText(),
@@ -7315,6 +7354,9 @@ export class InteractiveMode {
 		if (this.settingsManager.getShowTerminalProgress()) {
 			this.ui.terminal.setProgress(false);
 		}
+		this.unsubscribeRecovery?.();
+		this.unsubscribeRecovery = undefined;
+		this.recoveryStatus = undefined;
 		this.clearStatusIndicator();
 		this.themeController.disableAutoSync();
 		this.clearExtensionTerminalInputListeners();

@@ -7,6 +7,7 @@ import { sanitizeBinaryOutput } from "../../utils/shell.ts";
 import type { ToolRenderContext } from "../extensions/types.ts";
 
 export interface ActionBlockContent {
+	kind: "call" | "result" | "message";
 	heading: string;
 	preview?: string;
 	expandedText?: string;
@@ -18,8 +19,8 @@ export class ActionBlock extends Text {
 	private content: () => ActionBlockContent;
 	private outputPad: number;
 
-	constructor(content: () => ActionBlockContent, outputPad = 0, background?: (text: string) => string) {
-		super("", outputPad, 0, background);
+	constructor(content: () => ActionBlockContent, outputPad = 0, background?: (text: string) => string, paddingY = 0) {
+		super("", outputPad, paddingY, background);
 		this.content = content;
 		this.outputPad = outputPad;
 	}
@@ -31,14 +32,17 @@ export class ActionBlock extends Text {
 
 	override render(width: number): string[] {
 		if (width <= 0) return [];
-		const { heading, preview, expandedText, hint } = this.content();
+		const { kind, heading, preview, expandedText, hint } = this.content();
 		const title = heading.replace(/[\r\n\t]/gu, " ");
 		const padding = Math.min(this.outputPad, Math.max(0, Math.floor((width - 1) / 2)));
 		const available = Math.max(1, width - padding * 2);
+		const leadingSpace = kind === "result" ? "\n" : "";
 		if (expandedText !== undefined) {
-			this.setText(`${title}\n${expandedText}`);
+			this.setText(`${leadingSpace}${title}\n\n${expandedText}`);
 		} else {
-			const lines = [truncateToWidth(title, available)];
+			const lines =
+				kind === "result" ? ["", truncateToWidth(title, available)] : [truncateToWidth(title, available)];
+			if (kind !== "result" && (preview || hint)) lines.push("");
 			if (preview) {
 				const wrapped = wrapTextWithAnsi(preview, available);
 				lines.push(...wrapped.slice(0, 2));

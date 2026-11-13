@@ -6,7 +6,7 @@ Pi may ask whether you trust the working folder before loading its project resou
 
 <p align="center"><img src="images/interactive-mode.png" alt="Pi interactive mode showing a conversation, editor, and status information" width="750"></p>
 
-The transcript shows your prompts, Pi's responses, tool calls, results, and errors. You write prompts and commands in the editor. The single-line footer shows the current folder and input/output token totals on the left, with context usage, model, and thinking level on the right. Extension statuses appear on the same line when space permits. Use `/session` for detailed usage and cost.
+The transcript shows your prompts, Pi's responses, tool calls, results, and errors. You write prompts and commands in the editor. The single-line footer shows the current folder and input/output token totals on the left, with context usage, model, and thinking level on the right. Extension statuses, including active job and sub-agent counts, appear on the same line when space permits. Use `/session` for detailed usage and cost.
 
 ## Enter a prompt
 
@@ -26,7 +26,7 @@ Back in the prompt bar, `Enter` still sends the full pasted text and original fi
 
 ## Follow Pi's work
 
-Pi shows each tool call and result while it works. Leading icons identify tool actions and thinking blocks using your configured icon preset. Job and sub-agent blocks summarize actions and status instead of showing raw JSON; expand them to inspect full results. Press `Ctrl+O` to expand or collapse tool output. Press `Ctrl+T` to show or hide thinking blocks.
+Pi shows each tool call and result while it works. Leading icons identify tool actions and thinking blocks using your configured icon preset. Detected reasoning headings use a pen for design, a location pin for locating, a magnifier for review, sparkles for refinement, an eye for checking, and a clock for waiting or awaiting. Job and sub-agent blocks summarize actions and status instead of showing raw JSON; expand them to inspect full results. Press `Ctrl+O` to expand or collapse tool output. Press `Ctrl+T` to show or hide thinking blocks.
 
 The startup header lists the instructions and resources Pi loaded. The editor border indicates the current thinking level. The footer updates as the model uses context and reports usage.
 
@@ -65,12 +65,12 @@ Windows Terminal reserves some Alt shortcuts. See [Terminal Setup](terminal-setu
 
 ## Change the model or settings
 
-Type `/` to search the available commands. The commands you will use most often are:
+Type `/` to search the available commands. Leading icons identify command actions using your configured icon preset; selecting a suggestion inserts only the command text. The commands you will use most often are:
 
 - `/model` selects a model. Press `Ctrl+L` to open the same selector.
 - `/thinking` or `/effort` selects how much reasoning the current model uses. Both use the same model-supported levels, autocomplete, and picker. `max` is distinct from `xhigh`; unsupported levels report an error rather than silently changing your selection. Press `Shift+Tab` to cycle through supported levels.
 - `/login` and `/logout` manage provider access.
-- `/settings` changes common preferences.
+- `/settings` changes common preferences; all option rows use the configured icon preset.
 
 Prompt templates, skills, and extensions can add more commands to the same menu. See [Choose a Model](models.md), [Configuration](configuration.md), or the complete [Slash Commands reference](slash-commands.md).
 
@@ -78,7 +78,7 @@ Prompt templates, skills, and extensions can add more commands to the same menu.
 
 `/fast` toggles priority-tier requests for ChatGPT/Codex models (`openai-codex`). Use `/fast on`, `/fast off`, or `/fast status` explicitly. Enabling it can increase usage; it requests `service_tier: "priority"` starting with the next provider request, not a separate model or reasoning level.
 
-The native footer shows `fast (priority)` while active. The choice is saved in the current session and follows resume and branch navigation, including sessions saved by the former local extension. Switching to another provider leaves the preference remembered but inactive and shows `fast (inactive)`; `/fast off` still disables it. New sessions start with fast mode off. The command is supplied by the default built-in `fast` extension.
+The native footer shows a flash icon before the right-hand thinking level while active (or beside the model if no thinking level is shown). The choice is saved in the current session and follows resume and branch navigation, including sessions saved by the former local extension. Switching to another provider leaves the preference remembered but inactive and shows `fast (inactive)`; `/fast off` still disables it. New sessions start with fast mode off. The command is supplied by the default built-in `fast` extension.
 
 ## Continue or start over
 

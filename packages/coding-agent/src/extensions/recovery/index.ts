@@ -1,6 +1,8 @@
 // Offer interrupted-session recovery before execution and park live work through /pause.
 import type { ExtensionContext, ExtensionFactory } from "../../core/extensions/types.ts";
+import { JobManager } from "../../core/jobs/manager.ts";
 import { getSessionRecovery } from "../../core/session-recovery.ts";
+import { getSubagentActivity } from "../../core/subagents/activity.ts";
 import { type RecoveryChoice, RecoveryMenu } from "./menu.ts";
 
 /** Register /pause with Enter-to-continue, preserving /resume as the existing session picker. */
@@ -21,8 +23,20 @@ export function createRecoveryExtension(): ExtensionFactory {
 					void recovery
 						.pause()
 						.catch((error: unknown) => ctx.ui.notify(`Cannot pause: ${String(error)}`, "error"));
+				const jobs = new JobManager();
 				const choice = await ctx.ui.custom<RecoveryChoice>(
-					(tui, theme, keys, done) => new RecoveryMenu(recovery, tui, theme, keys, done),
+					(tui, theme, keys, done) =>
+						new RecoveryMenu(
+							recovery,
+							{
+								subagents: () => getSubagentActivity(ctx.sessionManager),
+								jobs: () => jobs.list(ctx.cwd),
+							},
+							tui,
+							theme,
+							keys,
+							done,
+						),
 					{ blocked: { kind: "permission", message: "Session paused; choose whether to continue" } },
 				);
 				if (choice === "continue") {

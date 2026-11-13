@@ -63,8 +63,9 @@ export function renderJobsCall(args: unknown, theme: Theme, context: ToolRenderC
 		delete: "Delete job",
 	};
 	return actionBlock(context, () => ({
+		kind: "call",
 		heading:
-			theme.fg("toolTitle", theme.bold(`${icon("job")} ${labels[input.action ?? ""] ?? "Jobs"}`)) +
+			theme.fg("toolTitle", theme.bold(`${icon("job")}  ${labels[input.action ?? ""] ?? "Jobs"}`)) +
 			theme.fg("accent", input.id ? ` · ${input.id.slice(0, 8)}` : input.all ? " · all projects" : ""),
 		preview:
 			input.name || input.command ? theme.fg("muted", compactPreview(input.name ?? input.command ?? "")) : undefined,
@@ -84,6 +85,7 @@ export function renderJobsResult(
 	return actionBlock(context, () => {
 		const summary = summarize(output, raw, options.isPartial, context.isError || result.isError === true);
 		return {
+			kind: "result",
 			heading: theme.fg(summary.color, summary.heading),
 			preview: theme.fg(summary.color === "error" ? "error" : "toolOutput", compactPreview(summary.preview)),
 			expandedText: options.expanded ? expandedResultText(result) : undefined,
@@ -109,10 +111,11 @@ export const renderJobMessage: MessageRenderer = (message, options, theme) => {
 	}
 	return new ActionBlock(
 		() => ({
+			kind: "message",
 			heading:
 				theme.fg(
 					"customMessageLabel",
-					theme.bold(`${icon("job")} Job${notice ? ` ${notice[1].slice(0, 8)}` : ""}`),
+					theme.bold(`${icon("job")}  Job${notice ? ` ${notice[1].slice(0, 8)}` : ""}`),
 				) +
 				theme.fg(stateColor(status), ` · ${stateLabel(status)}`) +
 				(name ? theme.fg("muted", ` · ${compactPreview(name)}`) : ""),
@@ -124,6 +127,7 @@ export const renderJobMessage: MessageRenderer = (message, options, theme) => {
 		}),
 		options.outputPad,
 		(text) => theme.bg("customMessageBg", text),
+		1,
 	);
 };
 

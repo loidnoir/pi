@@ -16,6 +16,9 @@ export type IconName =
 	| "agentReviewer"
 	| "agentPlanner"
 	| "thinking"
+	| "clock"
+	| "location"
+	| "sparkles"
 	| "read"
 	| "write"
 	| "edit"
@@ -25,6 +28,27 @@ export type IconName =
 	| "skill"
 	| "job"
 	| "tool"
+	| "settings"
+	| "model"
+	| "tree"
+	| "export"
+	| "import"
+	| "share"
+	| "bug"
+	| "info"
+	| "history"
+	| "keyboard"
+	| "fork"
+	| "trust"
+	| "login"
+	| "logout"
+	| "compact"
+	| "reload"
+	| "quit"
+	| "fast"
+	| "pause"
+	| "extension"
+	| "prompt"
 	| "statusDot";
 
 const ICONS: Record<IconPreset, Record<IconName, string>> = {
@@ -45,7 +69,10 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		agentReviewer: "✓",
 		agentPlanner: "≡",
 		thinking: "◇",
-		read: "≡",
+		clock: "◷",
+		location: "⌖",
+		sparkles: "✧",
+		read: "◉",
 		write: "+",
 		edit: "✎",
 		search: "⌕",
@@ -54,6 +81,27 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		skill: "✦",
 		job: "⚙",
 		tool: "⚒",
+		settings: "⚙",
+		model: "◈",
+		tree: "⑂",
+		export: "↗",
+		import: "↙",
+		share: "↗",
+		bug: "!",
+		info: "ⓘ",
+		history: "↶",
+		keyboard: "⌨",
+		fork: "⑂",
+		trust: "✓",
+		login: "↪",
+		logout: "↩",
+		compact: "⇥",
+		reload: "↻",
+		quit: "×",
+		fast: "ϟ",
+		pause: "Ⅱ",
+		extension: "⊞",
+		prompt: "≡",
 		statusDot: "\u2022",
 	},
 	nerd: {
@@ -73,7 +121,10 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		agentReviewer: "\uf132",
 		agentPlanner: "\uf0ae",
 		thinking: "\uf0eb",
-		read: "\uf15c",
+		clock: "\uf017",
+		location: "\u{f034e}",
+		sparkles: "\u{f0674}",
+		read: "\u{f0208}",
 		write: "\uf0c7",
 		edit: "\uf040",
 		search: "\uf002",
@@ -82,6 +133,27 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		skill: "\uf0d0",
 		job: "\uf085",
 		tool: "\uf0ad",
+		settings: "\uf013",
+		model: "\uf1b2",
+		tree: "\uf0e8",
+		export: "\uf08e",
+		import: "\uf019",
+		share: "\uf1e0",
+		bug: "\uf188",
+		info: "\uf129",
+		history: "\uf1da",
+		keyboard: "\uf11c",
+		fork: "\uf126",
+		trust: "\uf132",
+		login: "\uf090",
+		logout: "\uf08b",
+		compact: "\uf066",
+		reload: "\uf021",
+		quit: "\uf011",
+		fast: "\uf0e7",
+		pause: "\uf04c",
+		extension: "\uf12e",
+		prompt: "\uf27a",
 		statusDot: "\u2022",
 	},
 };

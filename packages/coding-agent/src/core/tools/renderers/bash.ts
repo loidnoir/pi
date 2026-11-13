@@ -28,11 +28,11 @@ function formatShellCall(args: ShellRenderArgs | undefined, prompt: string): str
 	if (args?.async) {
 		const name = str(args.name);
 		return (
-			theme.fg("toolTitle", theme.bold(`${icon("job")} Start background job${name ? ` · ${name}` : ""}`)) +
+			theme.fg("toolTitle", theme.bold(`${icon("job")}  Start background job${name ? ` · ${name}` : ""}`)) +
 			`\n${theme.fg("muted", `${prompt} ${commandDisplay}`)}${timeoutSuffix}`
 		);
 	}
-	return theme.fg("toolTitle", theme.bold(`${icon("terminal")} ${prompt} ${commandDisplay}`)) + timeoutSuffix;
+	return theme.fg("toolTitle", theme.bold(`${icon("terminal")}  ${prompt} ${commandDisplay}`)) + timeoutSuffix;
 }
 function rebuildBashResultRenderComponent(
 	component: Container,

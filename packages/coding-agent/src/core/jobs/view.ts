@@ -2,7 +2,7 @@
 import { type FSWatcher, mkdirSync, watch } from "node:fs";
 import { getKeybindings, Input, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { keyText } from "../../modes/interactive/components/keybinding-hints.ts";
-import { theme } from "../../modes/interactive/theme/theme.ts";
+import { CodeHighlighter, theme } from "../../modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../utils/ansi.ts";
 import { sanitizeBinaryOutput } from "../../utils/shell.ts";
 import type { PaneControls, PaneView } from "../panes/host.ts";
@@ -24,6 +24,8 @@ export class JobsView implements PaneView {
 	private editing: Editing | undefined;
 	private error: string | undefined;
 	private log = "";
+	private readonly output = new Text("", 0, 0);
+	private readonly commandHighlighter = new CodeHighlighter();
 	private logTruncated = false;
 	private scroll = 0;
 	private busy = false;
@@ -118,7 +120,11 @@ export class JobsView implements PaneView {
 				`${job.id}  ${job.runtime.state}  ${duration(job)}`,
 				progress(job, Math.min(30, Math.max(4, width - 10))),
 			);
-			lines.push(singleLine(`$ ${job.command}`, width), singleLine(`Directory: ${job.cwd}`, width));
+			const command = clean(job.command).replace(/\n/g, "\\n").replace(/\t/g, "   ");
+			lines.push(
+				truncateToWidth(`$ ${this.commandHighlighter.highlight(command, "bash")[0] ?? ""}`, width),
+				singleLine(`Directory: ${job.cwd}`, width),
+			);
 			if (job.progress?.message) lines.push(singleLine(job.progress.message, width));
 			if (job.progressError) lines.push(theme.fg("warning", singleLine(job.progressError, width)));
 			if (job.naming?.status === "failed")
@@ -126,11 +132,13 @@ export class JobsView implements PaneView {
 			if (job.runtime.state === "failed" || job.runtime.state === "lost" || job.runtime.state === "unreachable") {
 				if (job.runtime.error) lines.push(theme.fg("error", singleLine(job.runtime.error, width)));
 			}
-			const output = new Text(clean(this.log), 0, 0).render(width);
+			lines.push("");
+			const output = this.output.render(width);
 			const available = Math.max(0, height - lines.length - 5);
 			this.scroll = Math.min(this.scroll, Math.max(0, output.length - available));
 			const end = Math.max(0, output.length - this.scroll);
-			if (available > 0) lines.push(...output.slice(Math.max(0, end - available), end));
+			if (available > 0)
+				lines.push(...output.slice(Math.max(0, end - available), end).map((line) => `${line}\x1b[0m`));
 			lines.push(
 				theme.fg("muted", `${this.logTruncated ? "Log tail; full output" : "Full output"}: ${clean(job.logPath)}`),
 			);
@@ -303,7 +311,10 @@ export class JobsView implements PaneView {
 					);
 			if (this.detail) {
 				const log = this.manager.logs(this.detail, 2000);
-				this.log = log.text;
+				if (log.text !== this.log) {
+					this.log = log.text;
+					this.output.setText(cleanLog(this.log));
+				}
 				this.logTruncated = log.truncated;
 			}
 		} catch (error) {
@@ -329,6 +340,31 @@ function clean(text: string): string {
 
 function singleLine(text: string, width: number): string {
 	return truncateToWidth(clean(text).replace(/\n/g, "\\n"), width);
+}
+
+/** Keep SGR styling only at the untrusted process-output display boundary. */
+function cleanLog(text: string): string {
+	// Consume complete control strings and unfinished tails, not just their introducers.
+	const escapes =
+		/(?:\x1b[\]PX^_]|[\x90\x98\x9d-\x9f])[\s\S]*?(?:\x07|\x1b\\|\x9c|$)|(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]?|\x1b[ -/]*[0-~]?/g;
+	const parts: string[] = [];
+	let start = 0;
+	for (const match of text.matchAll(escapes)) {
+		parts.push(cleanLogText(text.slice(start, match.index)));
+		// Numeric SGR cannot move the cursor or change terminal modes. Normalize C1 CSI
+		// so TUI's ANSI-aware wrapping can restore styles on each continuation line.
+		const sgr = /^(?:\x1b\[|\x9b)([\d;]*)m$/.exec(match[0]);
+		if (sgr) parts.push(`\x1b[${sgr[1]}m`);
+		start = match.index + match[0].length;
+	}
+	parts.push(cleanLogText(text.slice(start)));
+	return parts.join("");
+}
+
+function cleanLogText(text: string): string {
+	return sanitizeBinaryOutput(text)
+		.replace(/[\x7f-\x9f]/g, "")
+		.replace(/\r\n?/g, "\n");
 }
 
 function duration(job: JobInfo): string {

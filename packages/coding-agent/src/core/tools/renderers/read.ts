@@ -56,7 +56,7 @@ function styledReadLineRange(args: ReadRenderArgs | undefined, theme: Theme): st
 function formatReadCall(args: ReadRenderArgs | undefined, theme: Theme, cwd: string): string {
 	const path = str(args?.file_path ?? args?.path);
 	const pathDisplay = renderToolPath(path, theme, cwd);
-	return `${theme.fg("toolTitle", theme.bold(`${icon("read")} read`))} ${pathDisplay}${styledReadLineRange(args, theme)}`;
+	return `${theme.fg("toolTitle", theme.bold(`${icon("read")}  read`))}${theme.fg("muted", " — ")}${pathDisplay}${styledReadLineRange(args, theme)}`;
 }
 function trimTrailingEmptyLines(lines: string[]): string[] {
 	let end = lines.length;
@@ -118,7 +118,7 @@ function formatCompactReadCall(
 	const expandHint = theme.fg("dim", ` (${keyText("app.tools.expand")} to expand)`);
 	if (classification.kind === "skill") {
 		return (
-			theme.fg("customMessageLabel", `\x1b[1m${icon("skill")} [skill]\x1b[22m `) +
+			theme.fg("customMessageLabel", `\x1b[1m${icon("skill")}  [skill]\x1b[22m `) +
 			theme.fg("customMessageText", classification.label) +
 			styledReadLineRange(args, theme) +
 			expandHint
@@ -126,8 +126,8 @@ function formatCompactReadCall(
 	}
 
 	return (
-		theme.fg("toolTitle", theme.bold(`${icon("read")} read ${classification.kind}`)) +
-		" " +
+		theme.fg("toolTitle", theme.bold(`${icon("read")}  read ${classification.kind}`)) +
+		theme.fg("muted", " — ") +
 		renderToolPath(str(args?.file_path ?? args?.path), theme, cwd, { displayPath: classification.label }) +
 		styledReadLineRange(args, theme) +
 		expandHint

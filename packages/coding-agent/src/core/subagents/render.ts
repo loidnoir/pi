@@ -77,8 +77,14 @@ export function renderSubagentCall(
 		delete: "Delete sub-agent",
 	};
 	return actionBlock(context, () => ({
+		kind: "call",
 		heading:
-			theme.fg("toolTitle", theme.bold(`${icon("agent")} ${labels[input.action ?? ""] ?? "Sub-agent"}`)) +
+			theme.fg(
+				"toolTitle",
+				theme.bold(
+					`${icon(input.action === "wait" ? "clock" : "agent")}  ${labels[input.action ?? ""] ?? "Sub-agent"}`,
+				),
+			) +
 			theme.fg(
 				"accent",
 				input.action === "start"
@@ -113,6 +119,7 @@ export function renderSubagentResult(
 			context.isError || result.isError === true,
 		);
 		return {
+			kind: "result",
 			heading: theme.fg(summary.color, summary.heading),
 			preview: theme.fg(summary.color === "error" ? "error" : "toolOutput", compactPreview(summary.preview)),
 			expandedText: options.expanded ? expandedResultText(result) : undefined,
@@ -137,10 +144,11 @@ export const renderSubagentMessage: MessageRenderer = (message, options, theme) 
 				: raw;
 	return new ActionBlock(
 		() => ({
+			kind: "message",
 			heading:
 				theme.fg(
 					"customMessageLabel",
-					theme.bold(`${icon("agent")} Sub-agent${heading ? ` ${heading[1].slice(0, 8)}` : ""}`),
+					theme.bold(`${icon("agent")}  Sub-agent${heading ? ` ${heading[1].slice(0, 8)}` : ""}`),
 				) +
 				theme.fg(stateColor(status), ` · ${stateLabel(status)}`) +
 				(heading ? theme.fg("muted", ` · ${compactPreview(`${heading[2]}: ${heading[3]}`)}`) : ""),
@@ -152,6 +160,7 @@ export const renderSubagentMessage: MessageRenderer = (message, options, theme) 
 		}),
 		options.outputPad,
 		(text) => theme.bg("customMessageBg", text),
+		1,
 	);
 };
 

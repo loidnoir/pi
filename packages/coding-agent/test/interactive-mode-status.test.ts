@@ -521,6 +521,8 @@ describe("InteractiveMode.setupAutocompleteProvider", () => {
 			defaultEditor,
 			editor: customEditor,
 			autocompleteProviderWrappers: [wrap1, wrap2],
+			session: { promptTemplates: [] },
+			skillCommands: new Map<string, string>(),
 		};
 
 		(InteractiveMode as any).prototype.setupAutocompleteProvider.call(fakeThis);
@@ -551,6 +553,8 @@ describe("InteractiveMode.setupAutocompleteProvider", () => {
 			defaultEditor,
 			editor: customEditor,
 			autocompleteProviderWrappers: [passThrough(["$"]), passThrough(["!"])],
+			session: { promptTemplates: [] },
+			skillCommands: new Map<string, string>(),
 		};
 
 		(

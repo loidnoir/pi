@@ -5,6 +5,7 @@ import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ContextUsage } from "../../../core/extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
 import { addUsageToTotals, createUsageTotals, type UsageTotals } from "../../../core/usage-totals.ts";
+import { icon } from "../icons.ts";
 import { theme } from "../theme/theme.ts";
 
 /**
@@ -153,18 +154,25 @@ export class FooterComponent implements Component {
 			rightParts.push(`${theme.fg("dim", "•")} ${theme.bold(theme.fg("warning", "xp"))}`);
 		}
 
-		let modelDisplay = state.model?.id || "no-model";
+		const extensionStatuses = this.footerData.getExtensionStatuses();
+		const fastActive = extensionStatuses.get("fast") === "fast (priority)";
+		const fastPrefix = fastActive ? `${icon("fast")}  ` : "";
+		const routed = this.session.routedModel;
+		let modelDisplay = sanitizeStatusText(state.model?.id || "no-model");
 		if (state.model?.reasoning) {
 			const thinkingLevel = state.thinkingLevel || "off";
-			modelDisplay += thinkingLevel === "off" ? " • thinking off" : ` • ${thinkingLevel}`;
-		}
+			const thinking = thinkingLevel === "off" ? "thinking off" : thinkingLevel;
+			modelDisplay += ` • ${routed ? "" : fastPrefix}${thinking}`;
+		} else if (!routed && fastActive) modelDisplay += ` ${icon("fast")}`;
 		// A virtual model routes each request; show where the latest response went.
-		const routed = this.session.routedModel;
 		if (routed) {
-			const level = routed.thinkingLevel ? ` • ${routed.thinkingLevel}` : "";
-			modelDisplay += ` → ${routed.model.id}${level}`;
+			const level = routed.thinkingLevel
+				? ` • ${fastPrefix}${routed.thinkingLevel}`
+				: fastActive
+					? ` ${icon("fast")}`
+					: "";
+			modelDisplay += ` → ${sanitizeStatusText(routed.model.id)}${level}`;
 		}
-		modelDisplay = sanitizeStatusText(modelDisplay);
 
 		const pwd = sanitizeStatusText(
 			formatCwdForFooter(this.session.sessionManager.getCwd(), process.env.HOME || process.env.USERPROFILE),
@@ -194,14 +202,14 @@ export class FooterComponent implements Component {
 				: truncateToWidth(tokens, leftWidth, ellipsis);
 
 		// Extension statuses use only spare space so they cannot displace the main footer fields.
-		const extensionStatuses = this.footerData.getExtensionStatuses();
 		const statusWidth = leftWidth - visibleWidth(left) - 1;
 		if (extensionStatuses.size > 0 && statusWidth > 0) {
 			const statuses = Array.from(extensionStatuses.entries())
+				.filter(([key]) => key !== "fast" || !fastActive)
 				.sort(([a], [b]) => a.localeCompare(b))
-				.map(([, text]) => sanitizeStatusText(text))
+				.map(([key, text]) => `${key === "recovery" ? `${icon("pause")}  ` : ""}${sanitizeStatusText(text)}`)
 				.join(" ");
-			left += ` ${truncateToWidth(statuses, statusWidth, ellipsis)}`;
+			if (statuses) left += ` ${truncateToWidth(statuses, statusWidth, ellipsis)}`;
 		}
 
 		const padding = rightWidth > 0 ? " ".repeat(width - visibleWidth(left) - rightWidth) : "";

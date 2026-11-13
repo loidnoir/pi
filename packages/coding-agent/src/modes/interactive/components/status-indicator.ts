@@ -1,5 +1,6 @@
 import { type Component, Loader, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
 import type { WorkingIndicatorOptions } from "../../../core/extensions/index.ts";
+import { icon } from "../icons.ts";
 import { theme } from "../theme/theme.ts";
 import { CountdownTimer } from "./countdown-timer.ts";
 import { keyText } from "./keybinding-hints.ts";
@@ -8,6 +9,9 @@ export type StatusIndicatorKind = "working" | "retry" | "compaction" | "branchSu
 
 export class StatusIndicator extends Loader {
 	readonly kind: StatusIndicatorKind;
+	private readonly statusUi: TUI;
+	private readonly pauseColorFn: (text: string) => string;
+	private pauseStatus: "pausing" | "paused" | undefined;
 
 	constructor(
 		kind: StatusIndicatorKind,
@@ -19,15 +23,41 @@ export class StatusIndicator extends Loader {
 	) {
 		super(ui, spinnerColorFn, messageColorFn, message, indicator);
 		this.kind = kind;
+		this.statusUi = ui;
+		this.pauseColorFn = messageColorFn;
+	}
+
+	/** Replace animation with held-execution status without losing the underlying working options. */
+	setPauseStatus(status: "pausing" | "paused" | undefined): void {
+		if (status === this.pauseStatus) return;
+		this.pauseStatus = status;
+		if (status) this.stop();
+		else this.start();
+		this.statusUi.requestRender();
+	}
+
+	override start(): void {
+		if (this.pauseStatus) this.stop();
+		else super.start();
+	}
+
+	override render(width: number): string[] {
+		if (!this.pauseStatus) return super.render(width);
+		const label = this.pauseStatus === "pausing" ? "Pausing…" : "Paused";
+		return ["", truncateToWidth(` ${this.pauseColorFn(`${icon("pause")}  ${label}`)}`, width, "")];
 	}
 
 	renderInBorder(width: number): string {
-		const line = super.render(width + 2)[1] ?? "";
+		const line = this.render(width + 2)[1] ?? "";
 		return truncateToWidth(line.startsWith(" ") ? line.slice(1).trimEnd() : line.trimEnd(), width, "");
 	}
 
 	renderSpinnerInBorder(width: number): string {
-		return truncateToWidth(this.getRenderedIndicator(), width, "");
+		return truncateToWidth(
+			this.pauseStatus ? this.pauseColorFn(icon("pause")) : this.getRenderedIndicator(),
+			width,
+			"",
+		);
 	}
 
 	dispose(): void {

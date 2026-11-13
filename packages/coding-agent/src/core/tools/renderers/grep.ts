@@ -26,7 +26,7 @@ function formatGrepCall(args: GrepRenderArgs | undefined, theme: Theme): string 
 	const limit = args?.limit;
 	const invalidArg = invalidArgText(theme);
 	let text =
-		theme.fg("toolTitle", theme.bold(`${icon("search")} grep`)) +
+		theme.fg("toolTitle", theme.bold(`${icon("search")}  grep`)) +
 		" " +
 		(pattern === null ? invalidArg : theme.fg("accent", `/${pattern || ""}/`)) +
 		theme.fg("toolOutput", ` in ${path === null ? invalidArg : path}`);

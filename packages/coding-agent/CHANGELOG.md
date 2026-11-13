@@ -44,7 +44,14 @@
 ### Changed
 
 - Simplified the default footer to one line: directory and input/output token totals on the left, context and model on the right. Branch/session labels, cache statistics, and cost are no longer shown in the footer; `/session` retains detailed usage.
-- Added semantic action icons to thinking and tool blocks, plus language-specific Nerd Font file icons in tool paths and search/listing results. Job/sub-agent actions and completion notices now show compact human-readable summaries with expandable original details.
+- Added semantic action icons to thinking and tool blocks, plus language-specific Nerd Font file icons in tool paths and search/listing results. Icons have a two-space label gap, detected reasoning headings use action-specific icons, waiting calls use a clock, and read headers use an eye icon and separate the action from the path with a muted em dash. Job/sub-agent actions and completion notices now show compact human-readable summaries with built-in-style outer padding, spaced title/description/status sections, and expandable original details.
+- Slash-command suggestions now show action-specific icons for built-ins, extensions, prompt templates, and skills without changing the command inserted into the editor.
+- All `/settings` rows and settings-owned submenu rows now show semantic icons without changing filtering, ordering, or selected values.
+- Job detail views now highlight Bash commands and preserve emitted ANSI output colors while filtering unsafe terminal controls; stored logs remain unchanged.
+- The `/pause` menu now shows a live green/yellow checklist for model responses, tool calls, sub-agents, and background jobs. Idle work is checked, active or uncertain work is unchecked, and the indicators remain advisory.
+- Paused chats now replace the working spinner with a static pause icon and label, showing `Pausing…` while current work drains and restoring normal indicators on continue. Pause controls and status labels share the configured pause icon.
+- Active native sub-agent counts now appear inline in the footer alongside job statuses, including queued work and clearing when no sub-agents remain active.
+- Active fast mode now appears as a flash icon before the right-hand thinking level instead of a `fast (priority)` status on the left; inactive mode remains distinct.
 - Clarification forms now separate questions, spaced choices, review, and submission controls, with wrapped labels and contextual keyboard hints.
 - Job-specific panes now close automatically when their job reaches a final state, including completion during pane startup. Logs and job records remain available; general job lists, unreachable jobs, and deliberately reopened historical views remain open.
 - The default model for the `anthropic` provider is now Claude Opus 5.5 (`claude-opus-5-5`) instead of Claude Opus 4.8

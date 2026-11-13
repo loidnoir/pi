@@ -26,7 +26,7 @@ import {
 	type TuiMode,
 	type WarningSettings,
 } from "../../../core/settings-manager.ts";
-import type { IconPreset } from "../icons.ts";
+import { type IconName, type IconPreset, icon } from "../icons.ts";
 import {
 	getSettingsListTheme,
 	parseAutoThemeSetting,
@@ -37,6 +37,81 @@ import {
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyDisplayText } from "./keybinding-hints.ts";
 import { SelectSubmenu, SteppedSubmenu, type SteppedSubmenuStep } from "./settings-submenu.ts";
+
+const SETTINGS_ICONS: Partial<Record<string, IconName>> = {
+	autocompact: "compact",
+	"show-images": "read",
+	"image-width-cells": "read",
+	"auto-resize-images": "compact",
+	"block-images": "trust",
+	"skill-commands": "skill",
+	"show-hardware-cursor": "terminal",
+	"editor-padding": "edit",
+	"output-padding": "terminal",
+	"autocomplete-max-visible": "search",
+	"clear-on-shrink": "terminal",
+	"terminal-progress": "terminal",
+	"steering-mode": "chat",
+	"follow-up-mode": "chat",
+	transport: "share",
+	"share-destination": "share",
+	"http-idle-timeout": "clock",
+	"cache-warming-mode": "fast",
+	"hide-thinking": "thinking",
+	"mermaid-rendering": "code",
+	"cache-miss-notices": "info",
+	"collapse-changelog": "history",
+	"quiet-startup": "terminal",
+	"install-telemetry": "info",
+	"default-project-trust": "trust",
+	"double-escape-action": "keyboard",
+	"tree-filter-mode": "tree",
+	warnings: "bug",
+	"model-thinking": "thinking",
+	"tui-mode": "terminal",
+	"fullscreen-exit-output": "export",
+	"fullscreen-scrollbar": "terminal",
+	"fullscreen-copy-on-select": "copy",
+	"fullscreen-wheel-scroll-lines": "terminal",
+	theme: "settings",
+	"icon-preset": "settings",
+	"rex-enabled": "terminal",
+	"rex-mode": "terminal",
+	"minimized-rex-jobs": "job",
+	"anthropic-extra-usage": "bug",
+	"light-theme": "settings",
+	"dark-theme": "settings",
+	apply: "submit",
+	"single-mode": "settings",
+};
+
+/** Keep icon decoration out of the labels used for filtering. */
+class SettingsIconList extends SettingsList {
+	private readonly display: { active: boolean };
+
+	constructor(...[items, ...options]: ConstructorParameters<typeof SettingsList>) {
+		const display = { active: false };
+		super(
+			items.map((item) => ({
+				...item,
+				get label() {
+					return display.active ? `${icon(SETTINGS_ICONS[item.id] ?? "settings")}  ${item.label}` : item.label;
+				},
+			})),
+			...options,
+		);
+		this.display = display;
+	}
+
+	override render(width: number): string[] {
+		this.display.active = true;
+		try {
+			return super.render(width);
+		} finally {
+			this.display.active = false;
+		}
+	}
+}
 
 const MODEL_PICKER_LAYOUT = { minPrimaryColumnWidth: 12, maxPrimaryColumnWidth: 46 };
 
@@ -175,7 +250,7 @@ class WarningSettingsSubmenu extends Container {
 			},
 		];
 
-		this.settingsList = new SettingsList(
+		this.settingsList = new SettingsIconList(
 			items,
 			Math.min(items.length, 10),
 			getSettingsListTheme(),
@@ -404,7 +479,7 @@ class ThemeSubmenu extends Container {
 			},
 		];
 
-		const settingsList = new SettingsList(
+		const settingsList = new SettingsIconList(
 			items,
 			Math.min(items.length, 10),
 			getSettingsListTheme(),
@@ -917,7 +992,7 @@ export class SettingsSelectorComponent extends Container {
 		// Add borders
 		this.addChild(new DynamicBorder());
 
-		this.settingsList = new SettingsList(
+		this.settingsList = new SettingsIconList(
 			items,
 			10,
 			getSettingsListTheme(),

@@ -6,6 +6,7 @@ import type { ExtensionContext, ExtensionFactory } from "../../core/extensions/t
 import { parsePaneCommand } from "../../core/panes/command.ts";
 import { openPane, type PaneHandle } from "../../core/panes/host.ts";
 import { getSessionRecovery } from "../../core/session-recovery.ts";
+import { registerSubagentActivity } from "../../core/subagents/activity.ts";
 import { discoverAgentDefinitions } from "../../core/subagents/definitions.ts";
 import { SubagentManager } from "../../core/subagents/manager.ts";
 import { renderSubagentMessage } from "../../core/subagents/render.ts";
@@ -30,6 +31,8 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 		let opening: Promise<PaneHandle> | undefined;
 		let scheduled = false;
 		let unregisterRecovery: (() => void) | undefined;
+		let unregisterActivity: (() => void) | undefined;
+		let unsubscribeStatus: (() => void) | undefined;
 		const delivered = new Set<string>();
 		const observing = new Set<string>();
 		const pending = new Map<string, SubagentResult>();
@@ -49,6 +52,26 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 					getSystemPrompt: () => context?.getSystemPrompt() ?? ctx.getSystemPrompt(),
 				});
 				const owner = manager;
+				const updateStatus = () => {
+					const active = owner
+						.list()
+						.filter((agent) => agent.status === "running" || agent.status === "queued").length;
+					(context ?? ctx).ui.setStatus(
+						"subagents",
+						active ? `${active} active sub-agent${active === 1 ? "" : "s"}` : undefined,
+					);
+				};
+				unsubscribeStatus = owner.subscribe((event) => {
+					if (event.type === "status" || event.type === "deleted") updateStatus();
+				});
+				updateStatus();
+				unregisterActivity = registerSubagentActivity(ctx.sessionManager, {
+					list: () => owner.list().map((agent) => agent.status),
+					subscribe: (listener) =>
+						owner.subscribe((event) => {
+							if (event.type === "status" || event.type === "deleted") listener();
+						}),
+				});
 				unregisterRecovery = getSessionRecovery(ctx.sessionManager).registerPeer({
 					pause: () => owner.pause(),
 					resume: () => owner.continuePaused(),
@@ -223,6 +246,10 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 					.some((entry) => entry.type === "custom" && entry.customType === "pi.subagent")
 			) {
 				pi.setActiveTools(pi.getActiveTools().filter((name) => name !== "subagent"));
+				unregisterActivity = registerSubagentActivity(ctx.sessionManager, {
+					list: () => [],
+					subscribe: () => () => {},
+				});
 				return;
 			}
 			const owner = getManager(ctx);
@@ -240,16 +267,21 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 		});
 		pi.on("session_shutdown", async () => {
 			lifetime.abort();
+			unsubscribeStatus?.();
+			unsubscribeStatus = undefined;
 			try {
 				await manager?.close();
 				unregisterRecovery?.();
 				unregisterRecovery = undefined;
 			} finally {
+				unregisterActivity?.();
+				unregisterActivity = undefined;
 				await opening?.catch(() => {});
 				await pane?.close();
 				pane = undefined;
 				opening = undefined;
 				manager = undefined;
+				context?.ui.setStatus("subagents", undefined);
 				context = undefined;
 				pending.clear();
 				observing.clear();

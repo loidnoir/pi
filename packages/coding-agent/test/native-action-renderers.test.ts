@@ -101,6 +101,16 @@ describe("sub-agent presentation", () => {
 		},
 	);
 
+	it.each(["unicode", "nerd"] as const)("uses a clock for waiting calls in %s", (preset) => {
+		setIconPreset(preset);
+		const args = { action: "wait", id };
+		const before = JSON.stringify(args);
+		const component = renderSubagentCall(args, theme, context(args));
+		expect(text(component)).toContain(`${icon("clock")}  Wait for sub-agent`);
+		for (const line of component.render(20)) expect(visibleWidth(line)).toBeLessThanOrEqual(20);
+		expect(JSON.stringify(args)).toBe(before);
+	});
+
 	it("retains useful streamed arguments when strict providers include null optionals", () => {
 		const args = { action: "start", agent: "reviewer", task: "Review", id: null, context: null, async: true };
 		const rendered = text(renderSubagentCall(args, theme, context(args, { argsComplete: false })));
@@ -213,7 +223,7 @@ describe("sub-agent presentation", () => {
 		result.details = { evidence: "/tmp/original.jsonl" };
 		const before = JSON.stringify(result);
 		const collapsed = renderSubagentResult(result, { expanded: false, isPartial: false }, theme, context());
-		expect(collapsed.render(24)).toHaveLength(4);
+		expect(collapsed.render(24)).toHaveLength(5);
 		for (const line of collapsed.render(24)) expect(visibleWidth(line)).toBeLessThanOrEqual(24);
 		const expanded = renderSubagentResult(result, { expanded: true, isPartial: false }, theme, context());
 		expect(text(expanded, 10000)).toContain(result.content[0].type === "text" ? result.content[0].text : "");
@@ -249,7 +259,7 @@ describe("job presentation", () => {
 		expect(text(renderJobsCall(args, theme, context(args, { argsComplete: false })))).toContain("List jobs");
 		expect(
 			text(renderJobsCall({ ...args, action: "restart", id, command: "node test.js" }, theme, context())),
-		).toContain("Restart job · 12345678\nnode test.js");
+		).toContain("Restart job · 12345678\n\nnode test.js");
 	});
 
 	it("shows rename, replacement command and project scope", () => {
@@ -357,7 +367,7 @@ describe("job presentation", () => {
 		result.structuredContent = { original: true };
 		const before = JSON.stringify(result);
 		const collapsed = renderJobsResult(result, { expanded: false, isPartial: false }, theme, context());
-		expect(collapsed.render(20)).toHaveLength(4);
+		expect(collapsed.render(20)).toHaveLength(5);
 		const expanded = renderJobsResult(
 			result,
 			{ expanded: true, isPartial: false },
@@ -372,12 +382,73 @@ describe("job presentation", () => {
 	});
 });
 
+describe("native action section spacing", () => {
+	it.each([
+		{
+			name: "sub-agent launch",
+			call: renderSubagentCall,
+			result: renderSubagentResult,
+			args: { action: "start", agent: "worker", task: "Review parser behavior" },
+			value: {
+				agent: { ...agent, status: "queued", label: "Review parser behavior", preview: "" },
+				notice: "Submitted; this is not a completion result.",
+			},
+			title: () => `${icon("agent")}  Start sub-agent · worker`,
+			description: "Review parser behavior",
+			status: "Queued · worker 12345678 · Review parser behavior",
+			preview: "Submitted; this is not a completion result.",
+		},
+		{
+			name: "job restart",
+			call: renderJobsCall,
+			result: renderJobsResult,
+			args: { action: "restart", id, command: "node test.js" },
+			value: { job: { ...job, command: "node test.js", runtime: { state: "starting" } } },
+			title: () => `${icon("job")}  Restart job · 12345678`,
+			description: "node test.js",
+			status: "Starting · 12345678 · Type check",
+			preview: "node test.js",
+		},
+	])("separates the $name title, description, and status controls", (entry) => {
+		const call = entry.call(entry.args, theme, context(entry.args));
+		const result = entry.result(
+			output(entry.value),
+			{ expanded: false, isPartial: false },
+			theme,
+			context(entry.args),
+		);
+		const lines = stripVTControlCharacters([...call.render(180), ...result.render(180)].join("\n"))
+			.split("\n")
+			.map((line) => line.trimEnd());
+		expect(lines).toEqual([entry.title(), "", entry.description, "", entry.status, entry.preview, "alt+e to expand"]);
+	});
+
+	it("omits missing call descriptions but separates message controls from their heading", () => {
+		const call = renderJobsCall({ action: "inspect", id }, theme, context());
+		expect(call.render(180)).toHaveLength(1);
+		const notice = new ActionBlock(() => ({ kind: "message", heading: "Job · Completed", hint: "alt+e to expand" }));
+		expect(text(notice)).toBe("Job · Completed\n\nalt+e to expand");
+	});
+
+	it("keeps an expanded action heading separate from original content", () => {
+		const args = { action: "start", task: "Review parser behavior" };
+		const call = renderSubagentCall(args, theme, context(args, { expanded: true }));
+		expect(text(call)).toContain(`Start sub-agent · worker\n\n${JSON.stringify(args, null, 2)}`);
+		const result = output({ agent, text: "Original evidence", truncated: false });
+		const expanded = renderSubagentResult(result, { expanded: true, isPartial: false }, theme, context(args));
+		expect(text(expanded)).toContain(
+			`Running · worker 12345678 · Fix renderer\n\n${JSON.stringify({ agent, text: "Original evidence", truncated: false }, null, 2)}`,
+		);
+	});
+});
+
 describe("native renderer fallbacks and integration", () => {
 	it.each([0, 1, 2, 3, 8, 30])("fits width %s with output padding and wide text", (width) => {
 		for (const outputPad of [0, 1, 2, 4]) {
 			for (const expanded of [false, true]) {
 				const block = new ActionBlock(
 					() => ({
+						kind: "message",
 						heading: "Job · 実行中",
 						preview: "A wide preview 日本語 text",
 						expandedText: expanded ? "Original 日本語 details" : undefined,
@@ -447,13 +518,39 @@ describe("automatic completion presentation", () => {
 	const agentContent = `Sub-agent ${id} (reviewer): Review renderer\nRun 1: completed.\nChild usage: input 10, output 20.\nIndependent history: /tmp/agent.jsonl\n\nFound a rendering bug.\n${"Original evidence ".repeat(100)}`;
 	const jobContent = `Background job ${id} (${JSON.stringify("Renderer checks")}): failed. Full output: /tmp/job.log`;
 
+	it.each([false, true])("pads job and agent messages like built-in blocks (expanded=%s)", (expanded) => {
+		for (const outputPad of [0, 1, 3]) {
+			for (const [render, content] of [
+				[renderSubagentMessage, agentContent],
+				[renderJobMessage, jobContent],
+			] as const) {
+				const notice = message(content, "notice");
+				const original = JSON.stringify(notice);
+				const block = render(notice, { ...messageOptions(expanded), outputPad }, theme)!;
+				const lines = block.render(120);
+				expect(stripVTControlCharacters(lines[0]).trim()).toBe("");
+				expect(stripVTControlCharacters(lines.at(-1)!).trim()).toBe("");
+				expect(stripVTControlCharacters(lines[1]).startsWith(" ".repeat(outputPad))).toBe(true);
+				for (const width of [0, 1, 2, 8, 30])
+					for (const line of block.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+				expect(JSON.stringify(notice)).toBe(original);
+			}
+		}
+	});
+
 	it("shows agent state, task and bounded answer preview, preserving full content expanded", () => {
 		const notice = message(agentContent, "subagent-result", { id, run: 1, status: "completed" });
 		const before = JSON.stringify(notice);
 		const collapsed = renderSubagentMessage(notice, messageOptions(), theme)!;
 		expect(text(collapsed)).toContain("Sub-agent 12345678 · Completed · reviewer: Review renderer");
 		expect(text(collapsed)).toContain("Found a rendering bug.");
-		expect(collapsed.render(30)).toHaveLength(4);
+		const lines = text(collapsed)
+			.split("\n")
+			.map((line) => line.trim());
+		expect(lines[1]).toBe("");
+		expect(lines[2]).toBe("Found a rendering bug.");
+		expect(lines.at(-1)).toBe("alt+e to expand");
+		expect(collapsed.render(30)).toHaveLength(7);
 		expect(text(collapsed)).not.toContain("Independent history");
 		expect(text(renderSubagentMessage(notice, { ...messageOptions(true), outputPad: 0 }, theme)!, 10000)).toContain(
 			agentContent.trimEnd(),
@@ -475,6 +572,12 @@ describe("automatic completion presentation", () => {
 		const rendered = text(renderJobMessage(notice, messageOptions(), theme)!);
 		expect(rendered).toContain("Job 12345678 · Failed · Renderer checks");
 		expect(rendered).toContain("Full output: /tmp/job.log");
+		expect(rendered.split("\n").map((line) => line.trim())).toEqual([
+			`${icon("job")}  Job 12345678 · Failed · Renderer checks`,
+			"",
+			"Full output: /tmp/job.log",
+			"alt+e to expand",
+		]);
 		expect(rendered).not.toContain("Completed");
 		expect(text(renderJobMessage(notice, messageOptions(true), theme)!)).toContain(jobContent);
 		expect(JSON.stringify(notice)).toBe(before);

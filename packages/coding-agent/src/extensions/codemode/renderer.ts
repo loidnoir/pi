@@ -77,7 +77,7 @@ export const codemodeRenderers: Pick<
 		startToolTimer(context);
 		// The code includes the `// @options:` line, so options show as part of the script.
 		const code = str((args as { code?: unknown } | undefined)?.code);
-		const title = theme.fg("toolTitle", theme.bold(`${icon("code")} codemode`));
+		const title = theme.fg("toolTitle", theme.bold(`${icon("code")}  codemode`));
 		const component = (context.lastComponent as Container | undefined) ?? new Container();
 		component.clear();
 		if (code === null) {

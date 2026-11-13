@@ -70,11 +70,11 @@ export function fileIcon(path: string, kind: FilePathKind = "file"): string {
 	const extension = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";
 	if (["sh", "bash", "zsh", "fish", "ps1"].includes(extension) || /^\.(?:bash|zsh|profile)/.test(name))
 		return icon("terminal");
-	return FILE_ICONS.get(extension) ?? icon("read");
+	return FILE_ICONS.get(extension) ?? "\uf15c";
 }
 
 /** Prefix a presentation-only path with its current file glyph when enabled. */
 export function fileIconPrefix(path: string, kind?: FilePathKind): string {
 	const glyph = fileIcon(path, kind);
-	return glyph ? `${glyph} ` : "";
+	return glyph ? `${glyph}  ` : "";
 }

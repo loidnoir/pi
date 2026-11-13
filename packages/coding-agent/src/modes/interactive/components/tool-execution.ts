@@ -406,7 +406,7 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private formatToolExecution(): string {
-		let text = theme.fg("toolTitle", theme.bold(`${icon("tool")} ${this.toolName}`));
+		let text = theme.fg("toolTitle", theme.bold(`${icon("tool")}  ${this.toolName}`));
 		const content = JSON.stringify(this.args, null, 2);
 		if (content) {
 			text += `\n\n${content}`;

@@ -31,6 +31,10 @@ The session picker lets you search, rename, and delete sessions. It can also sho
 
 Run `/pause` to hold the main agent and its native sub-agents. The menu shows **Pausing** while the current response and already-started tools finish; it then shows **Paused**. New model requests and tool calls wait at execution boundaries. Nested calls belonging to an already-running tool can finish. A synchronous delegation or child-wait tool must finish before the group can pause, so a long child task can delay that boundary.
 
+The working indicator uses a static pause icon with **Pausing…** while current work drains and **Paused** once held. Continuing restores the normal working indicator. Pause labels and controls use the same icon, including `nf-fa-pause` (`U+F04C`) with the Nerd preset.
+
+The live checklist shows green checked boxes for idle work and yellow unchecked boxes for active or uncertain work. Counts cover the current model response, tool calls, sub-agents, and background jobs in the project; unknown activity never appears as a green zero. This is advisory: you can keep the session paused regardless of the indicators, and background jobs still run independently.
+
 Press **Enter** on Continue to continue the same live run, without submitting another prompt or repeating completed tools. **Escape** closes the menu but keeps work paused; reopen it with `/pause`. `/resume` still opens the session picker. Independently supervised background jobs keep running, including when a job view is closed.
 
 After a crash, or after exiting while paused, reopen the saved session with `--continue`, `--resume`, or `--session`. Pi offers recovery before starting work. Choose Continue saved work, Keep paused, or Discard pending work. Discard preserves conversation history and completed evidence; it does not undo filesystem or external side effects.
