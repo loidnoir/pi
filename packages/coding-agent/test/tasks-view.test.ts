@@ -117,21 +117,29 @@ describe("task tree monitors", () => {
 		tui.addChild(bar);
 		tui.addChild(editor);
 		tui.setFocus(editor);
+		expect(plain(tui.render(80))).toContain("├─ [x] #1 Finished");
 		bar.handleInput("\x1bOR");
 		bar.handleInput("\x1b[6;3~");
 		expect(plain(tui.render(80))).toContain("TODO");
 		expect(plain(tui.render(80))).toContain("Unsubmitted 日本語 draft");
 		expect(editor.getText()).toBe("Unsubmitted 日本語 draft");
+		bar.handleInput("\x1bOR");
+		expect(plain(tui.render(80))).toContain("Unsubmitted 日本語 draft");
 		const extra = " preserved";
 		if (!bar.handleInput(extra)) editor.handleInput(extra);
 		expect(editor.getText()).toBe("Unsubmitted 日本語 draft preserved");
 	});
 
-	it("shows compact current/next work and retains finished history on expansion", () => {
+	it("shows unfinished work and finished history in the compact view and retains expansion", () => {
 		const { bar, store, render } = fixture();
 		expect(plain(bar.render(160))).toContain("TODO\n└─ Tasks · 1/3 completed · 1 active · 1 cancelled");
 		expect(plain(bar.render(160))).toContain("Working");
-		expect(plain(bar.render(160))).not.toContain("Finished");
+		const compact = plain(bar.render(160));
+		expect(compact).toContain("   ├─ [x] #1 Finished");
+		expect(compact).toContain("   ├─ [ ] #2 Working");
+		expect(compact).toContain("   ├─ [ ] #3 Next");
+		expect(compact).toContain("   └─ [-] #4 Obsolete (cancelled)");
+		expect(compact).not.toMatch(/^(?:now|next|done|skip) /mu);
 		expect(bar.handleInput("\x1bOR")).toBe(true);
 		expect(plain(bar.render(160))).toContain("Finished");
 		expect(plain(bar.render(160))).toContain("Obsolete (cancelled)");
@@ -151,6 +159,124 @@ describe("task tree monitors", () => {
 		expect(bar.handleInput("\x1bOR")).toBe(true);
 		expect(plain(bar.render(160))).toContain("Finished");
 		expect(taskSummary(store.getSnapshot())).not.toContain("4/4");
+	});
+
+	it("shows five compact tasks, prioritizing all active and pending work before completed history", () => {
+		const { bar, store } = fixture();
+		store.apply(
+			{
+				action: "add",
+				tasks: [
+					{ title: "Another pending" },
+					{ title: "Another active", status: "in_progress" },
+					{ title: "Older completion", status: "completed" },
+					{ title: "Cancelled history", status: "cancelled" },
+					{ title: "Previous completion", status: "completed" },
+					{ title: "Latest completion", status: "completed" },
+				],
+			},
+			() => {},
+		);
+		const before = JSON.stringify(store.getSnapshot());
+		const lines = bar.render(160).map(stripVTControlCharacters);
+		expect(lines).toHaveLength(7);
+		expect(lines.slice(2).map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([2, 3, 5, 6, 10]);
+		expect(lines[6]).toContain("└─ [x] #10 Latest completion");
+		expect(JSON.stringify(store.getSnapshot())).toBe(before);
+	});
+
+	it("keeps five completed tasks visible after all work finishes", () => {
+		const { bar, store } = fixture();
+		store.apply(
+			{
+				action: "update",
+				updates: [
+					{ id: 2, status: "completed" },
+					{ id: 3, status: "completed" },
+				],
+			},
+			() => {},
+		);
+		store.apply(
+			{
+				action: "add",
+				tasks: Array.from({ length: 6 }, (_, index) => ({
+					title: `Completed ${index}`,
+					status: "completed" as const,
+				})),
+			},
+			() => {},
+		);
+		const lines = bar.render(160).map(stripVTControlCharacters);
+		expect(lines).toHaveLength(7);
+		expect(lines.slice(2).map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([6, 7, 8, 9, 10]);
+		expect(lines.slice(2).every((line) => /(?:├|└)─ \[x\]/u.test(line))).toBe(true);
+	});
+
+	it("keeps compact sibling order and full child progress when some children are omitted", () => {
+		const { bar, store } = fixture();
+		store.apply(
+			{
+				action: "add",
+				tasks: [
+					{ title: "Older done child", parentId: 2, status: "completed" },
+					{ title: "Newest done child", parentId: 2, status: "completed" },
+					{ title: "Cancelled child", parentId: 2, status: "cancelled" },
+					{ title: "Pending child", parentId: 2 },
+					{ title: "Active child", parentId: 2, status: "in_progress" },
+				],
+			},
+			() => {},
+		);
+		const before = JSON.stringify(store.getSnapshot());
+		const rows = bar.render(160).slice(2).map(stripVTControlCharacters);
+		expect(rows.map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([2, 6, 8, 9, 3]);
+		expect(rows[0]).toBe("   ├─ [ ] #2 Working · children 2/4 completed · 1 cancelled");
+		expect(rows[1]).toBe("   │  ├─ [x] #6 Newest done child");
+		expect(rows[2]).toBe("   │  ├─ [ ] #8 Pending child");
+		expect(rows[3]).toBe("   │  └─ [ ] #9 Active child");
+		expect(rows[4]).toBe("   └─ [ ] #3 Next");
+		expect(JSON.stringify(store.getSnapshot())).toBe(before);
+	});
+
+	it("roots tasks with omitted parents in full-tree order without losing selected descendants", () => {
+		const { bar, store } = fixture();
+		store.apply({ action: "update", updates: [{ id: 2, parentId: 4 }] }, () => {});
+		store.apply(
+			{
+				action: "add",
+				tasks: [{ title: "Nested work", parentId: 2 }, { title: "Later root" }, { title: "Last root" }],
+			},
+			() => {},
+		);
+		const rows = bar.render(160).slice(2).map(stripVTControlCharacters);
+		expect(rows.map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([3, 2, 5, 6, 7]);
+		expect(rows[1]).toBe("   ├─ [ ] #2 (parent #4) Working · children 0/1 completed");
+		expect(rows[2]).toBe("   │  └─ [ ] #5 Nested work");
+		expect(rows.some((line) => /#4 Obsolete/u.test(line))).toBe(false);
+	});
+
+	it("keeps compact labels to one line and active selections visible at tiny heights", () => {
+		const { store } = fixture();
+		store.apply({ action: "update", updates: [{ id: 2, title: "日本語 e\u0301 ".repeat(60) }] }, () => {});
+		store.apply({ action: "add", tasks: [{ title: "Fifth task" }] }, () => {});
+		for (const terminalRows of [0, 2, 3, 6, 9, 12, 15, 21]) {
+			const bar = new TasksBar(
+				store,
+				{ expanded: false, scroll: 0 },
+				() => terminalRows,
+				() => {},
+				() => theme,
+			);
+			disposers.push(() => bar.dispose());
+			for (const width of [0, 1, 2, 3, 5, 9, 12, 20, 40]) {
+				const lines = bar.render(width);
+				expect(lines.length).toBeLessThanOrEqual(Math.floor(terminalRows / 3));
+				for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+				if (terminalRows >= 3 && width >= 12) expect(plain(lines)).toContain("#2");
+			}
+			if (terminalRows >= 12) expect(bar.render(40)).toHaveLength(Math.min(7, Math.floor(terminalRows / 3)));
+		}
 	});
 
 	it("bounds the expanded widget and pages every retained task without taking editor keys", () => {
@@ -227,17 +353,19 @@ describe("task tree monitors", () => {
 	);
 
 	it.each(["unicode", "nerd"] as const)("fits zero/narrow/CJK widths with hanging label wraps (%s)", (preset) => {
-		const { bar, view, store } = fixture();
+		const { bar, view, store, state } = fixture();
 		setIconPreset(preset);
 		store.apply(
 			{ action: "update", updates: [{ id: 2, title: "日本語の長い作業内容 and combining e\u0301" }] },
 			() => {},
 		);
-		bar.handleInput("\x1bOR");
-		for (const width of [0, 1, 2, 3, 5, 9, 10, 12, 20, 40, 100]) {
-			for (const lines of [bar.render(width), view.render(width, 10)]) {
-				expect(lines.length).toBeLessThanOrEqual(10);
-				for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		for (const expanded of [false, true]) {
+			state.expanded = expanded;
+			for (const width of [0, 1, 2, 3, 5, 9, 10, 12, 20, 40, 100]) {
+				for (const lines of [bar.render(width), view.render(width, 10)]) {
+					expect(lines.length).toBeLessThanOrEqual(10);
+					for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+				}
 			}
 		}
 		const wrapped = plain(taskTreeLeaves(store.getSnapshot().tasks, 28, theme));
@@ -350,15 +478,15 @@ describe("task tree monitors", () => {
 		},
 	);
 
-	it("keeps compact current and next parents as work, with child context on the selected row", () => {
+	it("nests selected children beneath their selected parents in the compact tree", () => {
 		const { store, bar } = fixture();
 		store.apply({ action: "add", tasks: [{ title: "Child work", parentId: 3, status: "in_progress" }] }, () => {});
-		// The earlier active parent remains current; selection is not silently restricted to leaves.
-		expect(plain(bar.render(120))).toContain(`now ${iconPrefix("checkboxUnchecked")}#2 Working`);
-		expect(plain(bar.render(120))).toContain(`next ${iconPrefix("checkboxUnchecked")}#3 Next`);
-		store.apply({ action: "update", updates: [{ id: 2, status: "completed" }] }, () => {});
-		expect(plain(bar.render(120))).toContain(`now ${iconPrefix("checkboxUnchecked")}#5 (parent #3) Child work`);
-		expect(plain(bar.render(120))).toContain(`next ${iconPrefix("checkboxUnchecked")}#3 Next`);
+		const rows = bar.render(120).slice(2).map(stripVTControlCharacters);
+		expect(rows.map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([1, 2, 3, 5, 4]);
+		expect(rows[1]).toBe(`   ├─ ${iconPrefix("checkboxUnchecked")}#2 Working`);
+		expect(rows[2]).toBe(`   ├─ ${iconPrefix("checkboxUnchecked")}#3 Next · children 0/1 completed`);
+		expect(rows[3]).toBe(`   │  └─ ${iconPrefix("checkboxUnchecked")}#5 Child work`);
+		expect(rows[3]).not.toContain("parent #3");
 	});
 
 	it("bounds very deep guides without recursion and keeps deepest selections in tiny widgets", () => {
@@ -396,8 +524,9 @@ describe("task tree monitors", () => {
 			disposers.push(() => bar.dispose());
 			const rendered = bar.render(100);
 			expect(rendered.length).toBeLessThanOrEqual(Math.floor(rows / 3));
-			expect(plain(rendered)).toContain("#12000 (parent #11999) Deep current");
-			if (rows >= 6) expect(plain(rendered)).toContain("#12001 (parent #11999) Deep next");
+			expect(plain(rendered)).toContain(rows < 9 ? "#12000 (parent #11999) Deep current" : "#12000 Deep current");
+			if (rows >= 6)
+				expect(plain(rendered)).toContain(rows < 9 ? "#12001 (parent #11999) Deep next" : "#12001 Deep next");
 		}
 		expect(controls.invalidate).toHaveBeenCalled();
 		expect(JSON.stringify(store.getSnapshot())).toBe(before);

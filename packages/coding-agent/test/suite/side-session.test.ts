@@ -2,19 +2,21 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, getCurrentTools } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionContext } from "../../src/core/extensions/types.ts";
 import { openPane, type PaneHandle } from "../../src/core/panes/host.ts";
 import { SideChatView } from "../../src/core/panes/side-chat.ts";
 import { createSideSession } from "../../src/core/side-session.ts";
 import { createBtwExtension } from "../../src/extensions/btw/index.ts";
 import { iconPrefix, setIconPreset } from "../../src/modes/interactive/icons.ts";
+import { initTheme } from "../../src/modes/interactive/theme/theme.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 vi.mock("../../src/core/panes/host.ts", () => ({ openPane: vi.fn() }));
 
 const harnesses: Harness[] = [];
 const agents: Agent[] = [];
+beforeEach(() => initTheme("dark"));
 afterEach(async () => {
 	for (const agent of agents.splice(0)) {
 		agent.abort();
@@ -42,8 +44,8 @@ async function sideContext(): Promise<{ harness: Harness; context: ExtensionCont
 	return { harness, context: capture.context };
 }
 
-describe("temporary read-only side conversations", () => {
-	it("formats each new /btw pane title through the live shared prefix without a model call", async () => {
+describe("read-only side conversations", () => {
+	it("formats the saved /btw list title through the live shared prefix without a model call", async () => {
 		const panes: PaneHandle[] = [];
 		vi.mocked(openPane).mockImplementation(async (_ctx, options) => {
 			const closed = Promise.withResolvers<void>();
@@ -69,15 +71,13 @@ describe("temporary read-only side conversations", () => {
 				throw new Error("Opening an empty side pane must not call a model");
 			},
 		]);
-		await harness.session.bindExtensions({});
+		await harness.session.bindExtensions({ mode: "tui" });
 		const before = JSON.stringify(harness.sessionManager.getEntries());
 		for (const preset of ["nerd", "unicode"] as const) {
 			setIconPreset(preset);
 			await harness.session.prompt("/btw");
 			try {
-				expect(vi.mocked(openPane).mock.calls.at(-1)?.[1].title).toBe(
-					`${iconPrefix("chat")}btw — temporary read-only conversation`,
-				);
+				expect(vi.mocked(openPane).mock.calls.at(-1)?.[1].title).toBe(`${iconPrefix("chat")}btw — saved chats`);
 			} finally {
 				await panes.pop()!.close();
 			}

@@ -67,7 +67,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	private errorMessage?: string;
 	private refreshStatusMessage = "Refreshing model catalogs…";
 	private refreshStatusSuccess = false;
-	private tui: TUI;
+	private tui: Pick<TUI, "requestRender">;
 	private scopedModels: ReadonlyArray<ScopedModelItem>;
 	private defaultModel?: DefaultModelReference;
 	private scope: ModelScope = "all";
@@ -78,7 +78,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	private closed = false;
 
 	constructor(
-		tui: TUI,
+		tui: Pick<TUI, "requestRender">,
 		currentModel: Model<any> | undefined,
 		modelRuntime: ModelRuntime,
 		scopedModels: ReadonlyArray<ScopedModelItem>,

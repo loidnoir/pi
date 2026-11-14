@@ -1,14 +1,15 @@
 // Interactive role selection, child status, and paged history without adding view traffic to main chat.
-import { getKeybindings, Input, indexedColor, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { getKeybindings, Input, indexedColor, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { keyText } from "../../modes/interactive/components/keybinding-hints.ts";
 import { type IconName, icon, iconPrefix } from "../../modes/interactive/icons.ts";
 import { theme } from "../../modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../utils/ansi.ts";
 import { sanitizeBinaryOutput } from "../../utils/shell.ts";
+import { ChatTranscript } from "../panes/chat-transcript.ts";
 import type { PaneControls, PaneView } from "../panes/host.ts";
 import type { AgentDefinitions } from "./definitions.ts";
 import type { SubagentManager } from "./manager.ts";
-import type { SubagentHistoryPage, SubagentInfo, SubagentStatus } from "./state.ts";
+import type { SubagentInfo, SubagentStatus, SubagentTranscriptPage } from "./state.ts";
 
 export interface SubagentsViewActions {
 	definitions(): AgentDefinitions;
@@ -30,15 +31,15 @@ export class SubagentsView implements PaneView {
 	private choosingRole = false;
 	private detail: string | undefined;
 	private editing: Editing | undefined;
-	private page: SubagentHistoryPage = { text: "", offset: 0, totalCharacters: 0 };
+	private page: SubagentTranscriptPage = { cwd: "", messages: [], offset: 0, totalMessages: 0 };
+	private transcript: ChatTranscript | undefined;
+	private expanded = false;
 	private offsets = [0];
 	private pageIndex = 0;
 	private scroll = 0;
 	private error: string | undefined;
 	private busy = false;
 	private disposed = false;
-	private renderedText = "";
-	private renderedWidth = -1;
 	private rendered: string[] = [];
 	private viewportLines = 1;
 
@@ -109,6 +110,9 @@ export class SubagentsView implements PaneView {
 				const role = this.catalog.agents[this.roleSelection];
 				if (role) this.edit({ kind: "start", role: role.name });
 			}
+		} else if (this.detail && kb.matches(data, "app.tools.expand")) {
+			this.expanded = !this.expanded;
+			this.transcript?.setExpanded(this.expanded);
 		} else if (this.detail && kb.matches(data, "tui.select.pageUp")) {
 			if (this.scroll > 0) this.scroll = Math.max(0, this.scroll - 10);
 			else if (this.pageIndex > 0) {
@@ -175,16 +179,12 @@ export class SubagentsView implements PaneView {
 					`${prefix}${theme.bold(line(agent.label, Math.max(0, width - visibleWidth(prefix))))}`,
 					width,
 				),
-				line(agent.id, width),
+				line(`Read-only agent history · ${agent.id}`, width),
 				line(`${agent.role} · ${agent.model} · thinking ${agent.thinkingLevel} · run ${agent.run}`, width),
 			);
 			if (agent.error) lines.push(theme.fg("error", line(agent.error, width)));
 			if (agent.labelError) lines.push(theme.fg("warning", line(`Task label: ${agent.labelError}`, width)));
-			if (this.renderedText !== this.page.text || this.renderedWidth !== width) {
-				this.renderedText = this.page.text;
-				this.renderedWidth = width;
-				this.rendered = new Text(clean(this.page.text), 0, 0).render(width);
-			}
+			this.rendered = this.transcript?.render(width) ?? [];
 			const available = Math.max(1, height - lines.length - 6);
 			this.viewportLines = available;
 			this.scroll = Math.min(this.scroll, Math.max(0, this.rendered.length - available));
@@ -193,7 +193,7 @@ export class SubagentsView implements PaneView {
 				theme.fg(
 					"muted",
 					line(
-						`History ${this.page.offset}–${this.page.offset + this.page.text.length}/${this.page.totalCharacters}${this.page.nextOffset !== undefined ? " · more pages below" : ""}`,
+						`Messages ${this.page.offset}–${this.page.offset + this.page.messages.length}/${this.page.totalMessages}${this.page.nextOffset !== undefined ? " · more pages below" : ""} · ${keyText("app.tools.expand")} expand tools`,
 						width,
 					),
 				),
@@ -262,6 +262,7 @@ export class SubagentsView implements PaneView {
 	dispose(): void {
 		this.disposed = true;
 		this.unsubscribe();
+		this.transcript?.dispose();
 	}
 
 	private edit(action: { kind: "start"; role: string } | { kind: "message" | "resume"; id: string }): void {
@@ -293,7 +294,15 @@ export class SubagentsView implements PaneView {
 		this.editing = { ...action, input };
 	}
 	private readPage(): void {
-		if (this.detail) this.page = this.manager.history(this.detail, this.offsets[this.pageIndex]);
+		if (!this.detail) return;
+		const page = this.manager.transcript(this.detail, this.offsets[this.pageIndex]);
+		if (!this.transcript || this.page.cwd !== page.cwd) {
+			this.transcript?.dispose();
+			this.transcript = new ChatTranscript({ cwd: page.cwd, invalidate: () => this.controls.invalidate() });
+			this.transcript.setExpanded(this.expanded);
+		}
+		this.page = page;
+		this.transcript.setMessages(page.messages);
 	}
 	private selectedAgent(): SubagentInfo | undefined {
 		return this.detail ? this.agents.find((agent) => agent.id === this.detail) : this.agents[this.selected];

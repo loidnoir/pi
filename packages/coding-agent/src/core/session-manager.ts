@@ -250,6 +250,7 @@ export type ReadonlySessionManager = Pick<
 	| "getSessionDir"
 	| "getSessionId"
 	| "getSessionFile"
+	| "ensurePersisted"
 	| "getLeafId"
 	| "getLeafEntry"
 	| "getEntry"

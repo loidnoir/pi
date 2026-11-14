@@ -51,7 +51,7 @@ export class ToolExecutionComponent extends Container {
 	private outputPad: number;
 	private isPartial = true;
 	private toolDefinition?: ToolRenderers;
-	private ui: TUI;
+	private ui: Pick<TUI, "requestRender">;
 	private cwd: string;
 	private executionStarted = false;
 	private argsComplete = false;
@@ -71,7 +71,7 @@ export class ToolExecutionComponent extends Container {
 		args: any,
 		options: ToolExecutionOptions = {},
 		toolDefinition: ToolRenderers | ToolDefinition<any, any, any> | undefined,
-		ui: TUI,
+		ui: Pick<TUI, "requestRender">,
 		cwd: string,
 	) {
 		super();

@@ -4,6 +4,7 @@ export type IconName =
 	| "quote"
 	| "copy"
 	| "chat"
+	| "text"
 	| "question"
 	| "radioChecked"
 	| "radioUnchecked"
@@ -59,6 +60,7 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		quote: "❯",
 		copy: "⧉",
 		chat: "?",
+		text: "≡",
 		question: "?",
 		radioChecked: "(●)",
 		radioUnchecked: "( )",
@@ -113,6 +115,7 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		quote: "\uf10e",
 		copy: "\u{f09a8}",
 		chat: "\uf075",
+		text: "\u{f09a8}",
 		question: "\uf059",
 		radioChecked: "\uf192",
 		radioUnchecked: "\uf10c",

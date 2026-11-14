@@ -257,6 +257,12 @@ export interface EditorTheme {
 	selectList: SelectListTheme;
 }
 
+/** Rendering services required by an editor hosted outside a complete TUI. */
+export interface EditorHost {
+	requestRender(): void;
+	terminal: { readonly rows: number };
+}
+
 export interface EditorOptions {
 	paddingX?: number;
 	autocompleteMaxVisible?: number;
@@ -311,7 +317,7 @@ function createScrollBorder(direction: "↑" | "↓", hiddenLineCount: number, w
 	return sliceByColumn(indicator, 0, indicatorWidth, true) + ellipsis;
 }
 
-export class Editor implements Component, Focusable {
+export class Editor<THost extends EditorHost = TUI> implements Component, Focusable {
 	private state: EditorState = {
 		lines: [""],
 		cursorLine: 0,
@@ -326,7 +332,7 @@ export class Editor implements Component, Focusable {
 		return this.autocompleteState !== null;
 	}
 
-	protected tui: TUI;
+	protected tui: THost;
 	private theme: EditorTheme;
 	private paddingX: number = 0;
 
@@ -397,7 +403,7 @@ export class Editor implements Component, Focusable {
 	public onChange?: (text: string) => void;
 	public disableSubmit: boolean = false;
 
-	constructor(tui: TUI, theme: EditorTheme, options: EditorOptions = {}) {
+	constructor(tui: THost, theme: EditorTheme, options: EditorOptions = {}) {
 		this.tui = tui;
 		this.theme = theme;
 		this.borderColor = theme.borderColor;

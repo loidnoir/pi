@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type FauxResponseFactory, fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
@@ -101,6 +101,68 @@ describe("isolated sub-agent sessions", () => {
 		resumed.resume(child.id, "Continue from your previous evidence");
 		expect((await resumed.wait(child.id)).text).toBe("Resumed child findings");
 		expect(readFileSync(parent.getSessionFile()!, "utf8")).toBe(before);
+	});
+
+	it("pages complete original transcript messages independently of the raw character history API", async () => {
+		const { parent, harness, manager, createManager, role } = await fixture();
+		const before = readFileSync(parent.getSessionFile()!, "utf8");
+		harness.setResponses([fauxAssistantMessage("Child-only transcript evidence")]);
+		const child = manager.start(role, "A transcript task", { context: "Frozen child-only background" });
+		await manager.wait(child.id);
+		const history = SessionManager.open(child.historyPath!);
+		for (let index = 0; index < 105; index++)
+			history.appendMessage({ role: "user", content: `Original message ${index}`, timestamp: index + 10 });
+		const restored = createManager();
+		const first = restored.transcript(child.id, 0, 2);
+		expect(first.cwd).toBe(harness.tempDir);
+		expect(first.messages.map((message) => message.role)).toEqual(["custom", "user"]);
+		expect(JSON.stringify(first.messages)).toContain("Frozen child-only background");
+		expect(first.nextOffset).toBe(2);
+		expect(first.totalMessages).toBe(108);
+		const response = restored.transcript(child.id, first.nextOffset, 1);
+		expect(response.messages[0].role).toBe("assistant");
+		expect(getMessageText(response.messages[0])).toBe("Child-only transcript evidence");
+		const capped = restored.transcript(child.id, 0, 1000);
+		expect(capped.messages).toHaveLength(100);
+		expect(capped.nextOffset).toBe(100);
+		const last = restored.transcript(child.id, capped.nextOffset);
+		expect(last.messages).toHaveLength(8);
+		expect(last.nextOffset).toBeUndefined();
+		expect(restored.transcript(child.id, 1000).messages).toEqual([]);
+		expect(() => restored.transcript(child.id, -1)).toThrow();
+		expect(() => restored.transcript(child.id, 0, 0)).toThrow();
+		const raw = restored.history(child.id);
+		expect(raw.text).toContain("[message:");
+		expect(raw.text).toContain("Child-only transcript evidence");
+		expect(raw.totalCharacters).toBeGreaterThan(0);
+		expect(readFileSync(parent.getSessionFile()!, "utf8")).toBe(before);
+	});
+
+	it.each([
+		{ ending: "complete final message", fragment: "" },
+		{ ending: "incomplete trailing JSON fragment", fragment: '\n{"type":"message","id":"unfinished","message":' },
+	])("reads a read-only transcript with a $ending without repairing the file", async ({ fragment }) => {
+		const { harness, manager, createManager, role } = await fixture();
+		harness.setResponses([fauxAssistantMessage("Exact final child evidence 日本語")]);
+		const child = manager.start(role, "Read this child without taking ownership");
+		await manager.wait(child.id);
+		const file = child.historyPath!;
+		SessionManager.open(file).appendMessage({ role: "user", content: "Complete trailing message", timestamp: 3 });
+		writeFileSync(file, readFileSync(file, "utf8").trimEnd() + fragment);
+		const before = readFileSync(file);
+		chmodSync(file, 0o400);
+		try {
+			const reader = createManager();
+			const page = reader.transcript(child.id);
+			expect(page.messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+			expect(getMessageText(page.messages[1])).toBe("Exact final child evidence 日本語");
+			expect(getMessageText(page.messages[2])).toBe("Complete trailing message");
+			expect(page.totalMessages).toBe(3);
+			expect(page.nextOffset).toBeUndefined();
+			expect(readFileSync(file)).toEqual(before);
+		} finally {
+			chmodSync(file, 0o600);
+		}
 	});
 
 	it("queues excess work at the configured limit and starts it only after a slot is released", async () => {

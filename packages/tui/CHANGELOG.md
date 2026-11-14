@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added `EditorHost` for embedding the native multiline editor in pane renderers with only render invalidation and a viewport height, while preserving full TUI access for existing editor subclasses.
 - Added atomic `EditorContent` items for compact pasted text, files, and images, with visible-item selection and undoable in-place text updates. Editor subclasses can customize paste collapse policy and viewport height.
 
 ### Fixed

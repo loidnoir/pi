@@ -1,6 +1,6 @@
 // Parent-scoped agent scheduling with child-owned sessions, resumable logs, and one writer per child.
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
@@ -23,6 +23,7 @@ import { DefaultResourceLoader } from "../resource-loader.ts";
 import { createAgentSession } from "../sdk.ts";
 import {
 	loadEntriesFromFile,
+	parseSessionEntries,
 	type ReadonlySessionManager,
 	type SessionEntry,
 	SessionManager,
@@ -41,6 +42,7 @@ import {
 	type SubagentInfo,
 	type SubagentRecord,
 	type SubagentResult,
+	type SubagentTranscriptPage,
 	subagentInfo,
 	writeSubagentRecord,
 } from "./state.ts";
@@ -395,6 +397,32 @@ export class SubagentManager {
 			totalCharacters: text.length,
 			...(end < text.length ? { nextOffset: end } : {}),
 		};
+	}
+
+	/** Read original messages for presentation, bounded to 100 complete messages without changing the raw history API. */
+	transcript(id: string, offset = 0, limit = 100): SubagentTranscriptPage {
+		const record = this.getRecord(id);
+		// Pagination bounds are a declaration policy not expressed by the number type.
+		if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1)
+			throw new Error("Transcript offset must be nonnegative and limit must be positive integers");
+		const page: SubagentTranscriptPage = { cwd: record.cwd, messages: [], offset, totalMessages: 0 };
+		const end = offset + Math.min(limit, 100);
+		const owner = this.work.get(id)?.history ?? this.memory.get(id);
+		// The normal disk loader repairs trailing newlines; presentation must never write another owner's log.
+		const entries = owner
+			? owner.getEntries()
+			: parseSessionEntries(readFileSync(this.historyPath(id)!, "utf8")).filter(
+					(entry): entry is SessionEntry => entry.type !== "session",
+				);
+		for (const entry of entries) {
+			for (const message of sessionEntryToContextMessages(entry)) {
+				if (message.role === "system") continue;
+				if (page.totalMessages >= offset && page.totalMessages < end) page.messages.push(message);
+				page.totalMessages++;
+			}
+		}
+		if (end < page.totalMessages) page.nextOffset = end;
+		return page;
 	}
 
 	/** Return the final response with the standard display cap; the complete response stays in the child's log. */

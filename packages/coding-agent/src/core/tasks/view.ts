@@ -3,7 +3,7 @@ import { type Component, getKeybindings, truncateToWidth } from "@earendil-works
 import { keyText } from "../../modes/interactive/components/keybinding-hints.ts";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
 import type { PaneControls, PaneView } from "../panes/host.ts";
-import { taskRow, taskTreeHeader, taskTreeLeaves } from "./render.ts";
+import { taskTreeHeader, taskTreeLeaves, taskTreePreview } from "./render.ts";
 import type { TaskStore } from "./state.ts";
 
 export interface TasksBarState {
@@ -11,7 +11,9 @@ export interface TasksBarState {
 	scroll: number;
 }
 
-/** Monitor current/next work without taking focus or replacing the editor draft. */
+const COLLAPSED_TASK_COUNT = 5;
+
+/** Monitor unfinished work and recent task history without replacing the editor draft. */
 export class TasksBar implements Component {
 	private readonly store: TaskStore;
 	private readonly state: TasksBarState;
@@ -51,10 +53,8 @@ export class TasksBar implements Component {
 	render(width: number): string[] {
 		const snapshot = this.store.getSnapshot();
 		const theme = this.getTheme();
-		const height = Math.min(this.state.expanded ? 10 : 4, Math.floor(this.rows() / 3));
+		const height = Math.min(this.state.expanded ? 10 : COLLAPSED_TASK_COUNT + 2, Math.floor(this.rows() / 3));
 		if (width <= 0 || height <= 0 || snapshot.tasks.length === 0) return [];
-		const current = snapshot.tasks.find((task) => task.status === "in_progress");
-		const next = snapshot.tasks.find((task) => task.status === "pending");
 		const header = taskTreeHeader(
 			snapshot,
 			width,
@@ -62,14 +62,14 @@ export class TasksBar implements Component {
 			`${keyText("app.tasks.expand")} ${this.state.expanded ? "collapse" : "expand"}`,
 		);
 		if (!this.state.expanded) {
-			const selected = [current, next].filter((task) => task !== undefined);
+			const selected = [
+				...snapshot.tasks.filter((task) => task.status === "in_progress"),
+				...snapshot.tasks.filter((task) => task.status === "pending"),
+				...snapshot.tasks.filter((task) => task.status === "completed").reverse(),
+				...snapshot.tasks.filter((task) => task.status === "cancelled").reverse(),
+			].slice(0, Math.min(COLLAPSED_TASK_COUNT, height));
 			// One line per selection keeps ancestors or wrapping from pushing active work out of view.
-			const rows = selected.map((task) =>
-				truncateToWidth(
-					theme.fg("dim", task.status === "in_progress" ? "now " : "next ") + taskRow(task, theme),
-					width,
-				),
-			);
+			const rows = taskTreePreview(snapshot.tasks, selected, width, theme);
 			return [...header.slice(0, Math.max(0, height - rows.length)), ...rows].slice(0, height);
 		}
 		const leaves = taskTreeLeaves(snapshot.tasks, width, theme);

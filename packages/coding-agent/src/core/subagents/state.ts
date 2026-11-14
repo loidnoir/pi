@@ -2,6 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
 import { stripAnsi } from "../../utils/ansi.ts";
@@ -78,6 +79,13 @@ export interface SubagentHistoryPage {
 	offset: number;
 	nextOffset?: number;
 	totalCharacters: number;
+}
+export interface SubagentTranscriptPage {
+	cwd: string;
+	messages: AgentMessage[];
+	offset: number;
+	nextOffset?: number;
+	totalMessages: number;
 }
 export interface SubagentResult {
 	agent: SubagentInfo;

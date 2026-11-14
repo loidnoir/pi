@@ -122,13 +122,53 @@ export function taskTreeHeader(snapshot: TaskSnapshot, width: number, theme: The
 
 /** Lay out a valid forest in stable sibling order, with bounded guides and hanging labels. */
 export function taskTreeLeaves(tasks: readonly Task[], width: number, theme: Theme): string[] {
-	if (width <= 0) return [];
+	const children = taskChildren(tasks);
+	return renderTaskTree(children, children, width, theme, "wrapped");
+}
+
+/** Render selected tasks in tree order, retaining full progress and explicit omitted-parent context. */
+export function taskTreePreview(
+	tasks: readonly Task[],
+	selected: readonly Task[],
+	width: number,
+	theme: Theme,
+): string[] {
+	const fullChildren = taskChildren(tasks);
+	const selectedIds = new Set(selected.map((task) => task.id));
+	const children = new Map<number | undefined, Task[]>();
+	const pending = [...(fullChildren.get(undefined) ?? [])].reverse();
+	while (pending.length) {
+		const task = pending.pop()!;
+		if (selectedIds.has(task.id)) {
+			const parent = task.parentId !== undefined && selectedIds.has(task.parentId) ? task.parentId : undefined;
+			const siblings = children.get(parent);
+			if (siblings) siblings.push(task);
+			else children.set(parent, [task]);
+		}
+		const descendants = fullChildren.get(task.id) ?? [];
+		for (let index = descendants.length - 1; index >= 0; index--) pending.push(descendants[index]);
+	}
+	return renderTaskTree(children, fullChildren, width, theme, "compact");
+}
+
+function taskChildren(tasks: readonly Task[]): Map<number | undefined, Task[]> {
 	const children = new Map<number | undefined, Task[]>();
 	for (const task of tasks) {
 		const siblings = children.get(task.parentId);
 		if (siblings) siblings.push(task);
 		else children.set(task.parentId, [task]);
 	}
+	return children;
+}
+
+function renderTaskTree(
+	children: Map<number | undefined, Task[]>,
+	fullChildren: Map<number | undefined, Task[]>,
+	width: number,
+	theme: Theme,
+	layout: "compact" | "wrapped",
+): string[] {
+	if (width <= 0) return [];
 	const frames = [{ tasks: children.get(undefined) ?? [], index: 0 }];
 	const lines: string[] = [];
 	// Iterative traversal avoids recursion and never builds an offscreen, depth-sized indent.
@@ -154,13 +194,14 @@ export function taskTreeLeaves(tasks: readonly Task[], width: number, theme: The
 		const { prefix: markerPrefix, label: taskLabel } = taskParts(
 			task,
 			theme,
-			abbreviated ? ` (parent #${task.parentId})` : "",
+			abbreviated || (depth === 0 && task.parentId !== undefined) ? ` (parent #${task.parentId})` : "",
 		);
 		const descendants = children.get(task.id);
-		const label = taskLabel + (descendants ? childProgress(descendants, theme) : "");
+		const allDescendants = fullChildren.get(task.id);
+		const label = taskLabel + (allDescendants ? childProgress(allDescendants, theme) : "");
 		const prefix = guide + markerPrefix;
 		const available = width - visibleWidth(prefix);
-		if (available < 1) lines.push(truncateToWidth(prefix + label, width));
+		if (layout === "compact" || available < 1) lines.push(truncateToWidth(prefix + label, width));
 		else {
 			const continuation = theme.fg(
 				"muted",

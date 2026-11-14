@@ -27,6 +27,14 @@ describe("icon presentation prefixes", () => {
 		},
 	);
 
+	it("uses the requested Nerd text glyph for side-chat histories with a Unicode fallback", () => {
+		setIconPreset("nerd");
+		expect(icon("text")).toBe("\u{f09a8}");
+		expect(iconPrefix("text")).toBe("\u{f09a8} ");
+		setIconPreset("unicode");
+		expect(icon("text")).toBe("≡");
+	});
+
 	it("keeps normal semantic and file pairs compact and leaves an absent glyph empty", () => {
 		setIconPreset("nerd");
 		expect(icon("edit")).toBe("\uf040");

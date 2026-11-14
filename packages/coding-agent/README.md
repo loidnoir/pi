@@ -213,11 +213,15 @@ The SDK exports `JobManager`, `createJobsToolDefinition`, `createJobsExtension`,
 
 Custom UI hosts implement `getRexSettings()` using their active session's settings manager; it returns the read-only `RexViewSettings`. `PaneHandle.placement` reports `floating`/`split` for Rex and `undefined` for TUI views. Rex-only `openPane` callers can combine `backend: "rex"` with `fallback: "none"` when a background presentation must not open an overlay.
 
-## Temporary side conversations
+## Saved side conversations
 
-Use `/btw [question]` for a fresh, in-memory conversation seeded from the current main branch. An unfinished main tool round is omitted rather than supplied with fabricated results. The side agent uses the selected model and thinking level, but only the built-in `read`, `grep`, `find`, and `ls` tools—not bash, writes, jobs, Rex, or extension tools.
+Use `/btw` to browse this main thread's side chats, ordered by latest activity with 20 chats per page. Select a chat and press Enter to reopen it; PageUp/PageDown switch pages. `/btw <question>` always starts a separate chat. Presentation flags such as `--tui`, `--rex`, `--split`, and `--floating` work for both the list and individual chats.
 
-Follow-ups stay in that view, including questions queued while it answers. Escape cancels an active answer; when idle, Escape or `/close` discards the side conversation. `/btw` restores an existing side view. Side turns do not become main-history entries or saved pi sessions; closing the view aborts its work and clears its conversation. Rex terminal capture/scrollback is controlled by Rex, not by pi's session storage.
+Each new chat references a fixed point in the main branch rather than copying its transcript. Later main-thread messages, context edits, and compaction do not change that inherited context. An unfinished main tool round is omitted rather than supplied with fabricated results. The side agent uses the selected model and thinking level, but only the built-in `read`, `grep`, `find`, and `ls` tools—not bash, writes, jobs, Rex, or extension tools.
+
+Follow-ups stay in the side view. Escape cancels an active answer; when idle, Escape or `/close` closes the view without deleting history. Side chats have separate saved histories outside the main resume picker; side turns never enter the main conversation. With `--no-session`, side histories remain in memory only. If the original main session is missing or replaced, saved side messages remain viewable but contextual continuation is unavailable. Keep the parent session and artifacts when backing up side histories.
+
+Side chats and read-only agent histories reuse the main chat's user, assistant, thinking, and tool components, with distinct headers and spacing between turns. The side-chat prompt is a bottom-anchored, bordered multiline editor, with context usage, model, and effort below it. An animated working indicator above the prompt remains visible while waiting for the model and running tools, then clears when idle. `/model` opens a side-local model picker; `/effort` or `/thinking` selects effort. Main model-selection/cycling and effort shortcuts work here too. Side selections are saved with that chat and never change the main thread; finish or cancel an active answer before changing them. Rex terminal capture/scrollback is controlled by Rex, not by pi's session storage.
 
 The header uses the shared chat icon: Nerd Font `U+F075` when Icons is `nerd`, with a plain question-mark fallback for the Unicode preset.
 

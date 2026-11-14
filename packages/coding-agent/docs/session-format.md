@@ -38,6 +38,16 @@ Optional frozen context is stored only in the child. The main file receives ordi
 Closing a view does not delete or stop a child. Pi lifecycle shutdown stops and drains owned work; logs remain until explicitly deleted through the child controls. Deleting a main JSONL does not recursively delete child logs. Child storage is associated with the parent file path, so moving that file does not move or re-associate its child namespace. A non-persisted parent (`--no-session`) keeps its child histories and state in memory only.
 
 
+## Side-chat history
+
+`/btw` chats belong to one main session, not the entire project. Persistent histories live at `<agent-dir>/btw/<parent-file-hash>/<chat-id>/session.jsonl`, outside the main session picker. The hash uses the absolute parent file path. Each file contains only side-owned messages, a `session_info` title derived from the initial question, and `pi.btw` custom metadata recording the parent file, session identity, and fixed entry boundary. Parent conversation arrays are not copied into child files or appended to the main history.
+
+On reopen, Pi reads the parent's projection at that exact boundary and adds the side chat's own turns and read-only tool boundary in memory. Later parent turns, context edits, branch changes, and compaction do not update the inherited context. An unfinished parent tool round is omitted. Parent identity and entry links are checked before contextual continuation; missing or replaced parent history leaves saved side messages viewable, but continuation fails explicitly.
+
+Side-local model and effort choices use ordinary `model_change` and `thinking_level_change` entries in the side file. Reopening restores those selections rather than taking the main thread's latest choices; side changes never alter the main session or global defaults.
+
+Closing a view aborts its active answer and retains its history. Histories and captured output may contain sensitive data and are not automatically expired. Back up the original parent JSONL, side-chat directory, and artifacts together. Deleting or moving a parent file does not move or delete side histories. A `--no-session` parent keeps side history in memory only, including across view closes, until the process exits.
+
 ## Deleting Sessions
 
 Sessions can be removed by deleting their `.jsonl` files under `~/.pi/agent/sessions/`.

@@ -94,7 +94,7 @@ export class ThinkingSelectorComponent extends Container implements Focusable {
 			new Text(
 				theme.fg(
 					"dim",
-					`  ${keyDisplayText("tui.select.confirm")} to select · ${keyDisplayText("app.thinking.save")} to set as default · ${keyDisplayText("tui.select.cancel")} to cancel`,
+					`  ${keyDisplayText("tui.select.confirm")} to select${this.onSelectAsDefault ? ` · ${keyDisplayText("app.thinking.save")} to set as default` : ""} · ${keyDisplayText("tui.select.cancel")} to cancel`,
 				),
 				0,
 				0,

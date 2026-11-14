@@ -43,6 +43,7 @@ export {
 	Editor,
 	type EditorContent,
 	type EditorContentItem,
+	type EditorHost,
 	type EditorOptions,
 	type EditorTheme,
 } from "./components/editor.ts";

@@ -66,7 +66,7 @@ Avoid emoji, generic labels, and copied command lines.
 
 Each generated name uses one additional model request, with no tools or retries, a 30-second deadline, and an 80-character display limit. Chats and jobs use the active model; sub-agents use their selected child model. Delivered usage contributes to the owning session's totals; child-label usage stays in child history. Naming prompts and raw replies never become conversation messages. Failures keep the existing fallback display rather than interrupting the work.
 
-Interactive shutdown, reload, and session replacement cancel pending naming. Print/JSON modes deliver the answer first, then finish bounded naming work before exit. Temporary `/btw` conversations remain unsaved and retain their temporary-view header.
+Interactive shutdown, reload, and session replacement cancel pending naming. Print/JSON modes deliver the answer first, then finish bounded naming work before exit. `/btw` chats use their initial question as a title without a separate naming request.
 
 SDK hosts opt in with `createAutoNameExtension()` and `createJobsExtension()` through their resource loader, and drain the `session_shutdown` lifecycle before disposal. `AgentSessionRuntime` handles that lifecycle.
 
@@ -101,6 +101,16 @@ Compaction can fail if the provider is unavailable or cannot accept the summariz
 Each compaction records an original-history checkpoint. If the summary misses a needed detail, the agent can use `recall_context(checkpoint_id, query)` to recover it with original message citations. This uses additional calls to the current model through a read-only helper, not current filesystem searches. Saved checkpoints remain usable after resume; ephemeral ones disappear on exit.
 
 See [Compaction Reference](compaction.md) for thresholds, retained boundaries, branch-summary behavior, and extension hooks.
+
+## Read-only side chats
+
+Use `/btw` to browse side chats belonging to this main thread, ordered by latest activity in pages of 20. Enter reopens the selected chat; PageUp/PageDown change pages. `/btw <question>` always starts a new side chat. Follow-up questions belong in its view.
+
+The side view has a bottom-anchored multiline prompt and a context/model/effort footer. `/model` and `/effort` (`/thinking`) open local pickers; the main model/effort shortcuts work too. Selections persist in the side chat without changing the main thread. Model and effort changes are blocked during active or queued work.
+
+Each side chat stores its own messages separately and references a fixed main-thread entry for inherited context. Reopening never pulls in later main messages. The main chat remains unchanged, and side chats do not appear in `/resume`. Both side chats and agent history use the main chat's message and tool rendering with distinct headers.
+
+Escape cancels an active side answer, then closes the view when idle. Closing or `/close` retains saved history. With `--no-session`, side chats are memory-only. Saved continuation needs the original main session; if it is missing or replaced, the side messages can still be viewed but new questions are blocked. See [side-chat storage](session-format.md#side-chat-history) for backup and retention details.
 
 ## Control session storage
 

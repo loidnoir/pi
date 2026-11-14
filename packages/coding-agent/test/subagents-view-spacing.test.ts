@@ -43,7 +43,7 @@ describe("sub-agent icon-label spacing", () => {
 		const manager = {
 			list: () => [agent],
 			subscribe: () => () => {},
-			history: () => ({ text: "", offset: 0, totalCharacters: 0 }),
+			transcript: () => ({ cwd: process.cwd(), messages: [], offset: 0, totalMessages: 0 }),
 		} as unknown as SubagentManager;
 		const controls: PaneControls = {
 			invalidate: vi.fn(),
