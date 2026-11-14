@@ -9,7 +9,7 @@ import { stripAnsi } from "../../utils/ansi.ts";
 import { sanitizeBinaryOutput } from "../../utils/shell.ts";
 import type { ToolRenderContext, ToolRenderResultOptions } from "../extensions/types.ts";
 import { actionBlock, compactPreview, expandedResultText, resultText } from "../jobs/action-block.ts";
-import { type Task, type TaskSnapshot, TaskSnapshotSchema } from "./state.ts";
+import { parseTaskSnapshot, type Task, type TaskSnapshot, TaskSnapshotSchema } from "./state.ts";
 
 export const TasksResultSchema = Type.Object({
 	action: Type.Union([Type.Literal("list"), Type.Literal("add"), Type.Literal("update")]),
@@ -47,8 +47,16 @@ export function renderTasksResult(
 	theme: Theme,
 	context: ToolRenderContext<unknown, unknown>,
 ) {
-	// Trust boundary: resumed results and results changed by other extensions contain unknown details.
-	const details = resultValidator.Check(result.details) ? result.details : undefined;
+	// Trust boundary: historical and extension-edited details need both structural and graph validation.
+	let details: TasksToolDetails | undefined;
+	if (resultValidator.Check(result.details)) {
+		try {
+			parseTaskSnapshot(result.details.snapshot);
+			details = result.details;
+		} catch {
+			// Invalid historical details fall back to the original result text.
+		}
+	}
 	return actionBlock(context, () => ({
 		kind: "result",
 		heading: theme.fg(
@@ -75,13 +83,13 @@ export function taskSummary(snapshot: TaskSnapshot): string {
 	return `${completed}/${snapshot.tasks.length - cancelled} completed${active ? ` · ${active} active` : ""}${cancelled ? ` · ${cancelled} cancelled` : ""}`;
 }
 
-/** Render task status using live icons and theme colors, with untrusted title controls removed. */
+/** Render a standalone task with its parent ID, live styling, and sanitized title. */
 export function taskRow(task: Task, theme: Theme): string {
-	const { prefix, label } = taskParts(task, theme);
+	const { prefix, label } = taskParts(task, theme, task.parentId === undefined ? "" : ` (parent #${task.parentId})`);
 	return prefix + label;
 }
 
-function taskParts(task: Task, theme: Theme): { prefix: string; label: string } {
+function taskParts(task: Task, theme: Theme, context = ""): { prefix: string; label: string } {
 	const prefix =
 		task.status === "completed"
 			? theme.fg("success", iconPrefix("checkboxChecked"))
@@ -91,7 +99,7 @@ function taskParts(task: Task, theme: Theme): { prefix: string; label: string } 
 					? theme.fg("muted", iconPrefix("checkboxCancelled"))
 					: theme.fg("muted", iconPrefix("checkboxUnchecked"));
 	const title = sanitizeBinaryOutput(stripAnsi(task.title)).replace(/[\r\n\t]/gu, " ");
-	const label = `#${task.id} ${title}`;
+	const label = `#${task.id}${context} ${title}`;
 	const styled =
 		task.status === "completed"
 			? theme.fg("success", theme.strikethrough(label))
@@ -112,24 +120,74 @@ export function taskTreeHeader(snapshot: TaskSnapshot, width: number, theme: The
 	].map((line) => truncateToWidth(line, width));
 }
 
-/** Lay out connected leaves with hanging labels measured in terminal columns. */
+/** Lay out a valid forest in stable sibling order, with bounded guides and hanging labels. */
 export function taskTreeLeaves(tasks: readonly Task[], width: number, theme: Theme): string[] {
 	if (width <= 0) return [];
-	return tasks.flatMap((task, index) => {
-		const last = index === tasks.length - 1;
-		const { prefix: markerPrefix, label } = taskParts(task, theme);
-		const guide = theme.fg("muted", `   ${last ? "└" : "├"}─ `);
+	const children = new Map<number | undefined, Task[]>();
+	for (const task of tasks) {
+		const siblings = children.get(task.parentId);
+		if (siblings) siblings.push(task);
+		else children.set(task.parentId, [task]);
+	}
+	const frames = [{ tasks: children.get(undefined) ?? [], index: 0 }];
+	const lines: string[] = [];
+	// Iterative traversal avoids recursion and never builds an offscreen, depth-sized indent.
+	while (frames.length) {
+		const frame = frames[frames.length - 1];
+		if (frame.index === frame.tasks.length) {
+			frames.pop();
+			continue;
+		}
+		const task = frame.tasks[frame.index++];
+		const last = frame.index === frame.tasks.length;
+		const depth = frames.length - 1;
+		const markerWidth = visibleWidth(iconPrefix("checkboxUnchecked"));
+		// Reserve useful label space before spending terminal columns on ancestor guides.
+		const guideBudget = Math.max(0, width - markerWidth - 12);
+		const keptAncestors = Math.min(depth, Math.max(0, Math.floor((guideBudget - 6) / 3)));
+		const abbreviated = keptAncestors < depth;
+		let ancestors = guideBudget >= 6 ? (abbreviated ? " … " : "   ") : "";
+		for (let index = depth - keptAncestors; index < depth; index++)
+			ancestors += frames[index].index < frames[index].tasks.length ? "│  " : "   ";
+		const branch = guideBudget >= 3 ? `${last ? "└" : "├"}─ ` : "";
+		const guide = theme.fg("muted", ancestors + branch);
+		const { prefix: markerPrefix, label: taskLabel } = taskParts(
+			task,
+			theme,
+			abbreviated ? ` (parent #${task.parentId})` : "",
+		);
+		const descendants = children.get(task.id);
+		const label = taskLabel + (descendants ? childProgress(descendants, theme) : "");
 		const prefix = guide + markerPrefix;
 		const available = width - visibleWidth(prefix);
-		if (available < 1) return [truncateToWidth(prefix + label, width)];
-		const continuation = theme.fg("muted", `   ${last ? " " : "│"}  ${" ".repeat(visibleWidth(markerPrefix))}`);
-		return wrapTextWithAnsi(label, available).map((line, lineIndex) =>
-			truncateToWidth((lineIndex ? continuation : prefix) + line, width),
-		);
-	});
+		if (available < 1) lines.push(truncateToWidth(prefix + label, width));
+		else {
+			const continuation = theme.fg(
+				"muted",
+				ancestors + (branch ? `${last ? " " : "│"}  ` : "") + " ".repeat(visibleWidth(markerPrefix)),
+			);
+			for (const [index, line] of wrapTextWithAnsi(label, available).entries())
+				lines.push(truncateToWidth((index ? continuation : prefix) + line, width));
+		}
+		if (descendants) frames.push({ tasks: descendants, index: 0 });
+	}
+	return lines;
+}
+
+function childProgress(children: readonly Task[], theme: Theme): string {
+	let completed = 0;
+	let cancelled = 0;
+	for (const child of children) {
+		if (child.status === "completed") completed++;
+		else if (child.status === "cancelled") cancelled++;
+	}
+	return theme.fg(
+		"muted",
+		` · children ${completed}/${children.length - cancelled} completed${cancelled ? ` · ${cancelled} cancelled` : ""}`,
+	);
 }
 
 /** Include every task and stable ID in model-facing evidence. */
 export function taskStateText(snapshot: TaskSnapshot): string {
-	return `Tasks revision ${snapshot.revision}: ${taskSummary(snapshot)}\n${snapshot.tasks.length ? snapshot.tasks.map((task) => `#${task.id} [${task.status}] ${JSON.stringify(task.title)}`).join("\n") : "No tasks."}`;
+	return `Tasks revision ${snapshot.revision}: ${taskSummary(snapshot)}\n${snapshot.tasks.length ? snapshot.tasks.map((task) => `#${task.id} [${task.status}] ${JSON.stringify(task.title)}${task.parentId === undefined ? "" : ` (parent #${task.parentId})`}`).join("\n") : "No tasks."}`;
 }

@@ -72,7 +72,7 @@ SDK hosts opt in with `createAutoNameExtension()` and `createJobsExtension()` th
 
 ## Choose how to branch
 
-Pi stores entries as a tree, so returning to an earlier point does not erase the branch you leave. The native [task list](usage.md#track-multi-step-work) follows the active branch too: each branch inherits task state up to its branch point, and later updates stay on that branch. Compaction does not remove retained task metadata.
+Pi stores entries as a tree, so returning to an earlier point does not erase the branch you leave. The native [task list](usage.md#track-multi-step-work) follows the active branch too: each branch inherits task state, including parent/subtask relationships, up to its branch point, and later updates stay on that branch. Moving or detaching a subtree changes only that branch. Compaction does not remove retained task metadata.
 
 | Action | Result | Use it when |
 |---|---|---|

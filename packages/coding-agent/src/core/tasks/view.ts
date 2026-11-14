@@ -3,7 +3,7 @@ import { type Component, getKeybindings, truncateToWidth } from "@earendil-works
 import { keyText } from "../../modes/interactive/components/keybinding-hints.ts";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
 import type { PaneControls, PaneView } from "../panes/host.ts";
-import { taskTreeHeader, taskTreeLeaves } from "./render.ts";
+import { taskRow, taskTreeHeader, taskTreeLeaves } from "./render.ts";
 import type { TaskStore } from "./state.ts";
 
 export interface TasksBarState {
@@ -55,18 +55,28 @@ export class TasksBar implements Component {
 		if (width <= 0 || height <= 0 || snapshot.tasks.length === 0) return [];
 		const current = snapshot.tasks.find((task) => task.status === "in_progress");
 		const next = snapshot.tasks.find((task) => task.status === "pending");
-		const tasks = this.state.expanded ? snapshot.tasks : [current, next].filter((task) => task !== undefined);
 		const header = taskTreeHeader(
 			snapshot,
 			width,
 			theme,
 			`${keyText("app.tasks.expand")} ${this.state.expanded ? "collapse" : "expand"}`,
 		);
-		const leaves = taskTreeLeaves(tasks, width, theme);
-		const showFooter = this.state.expanded && height >= 4;
+		if (!this.state.expanded) {
+			const selected = [current, next].filter((task) => task !== undefined);
+			// One line per selection keeps ancestors or wrapping from pushing active work out of view.
+			const rows = selected.map((task) =>
+				truncateToWidth(
+					theme.fg("dim", task.status === "in_progress" ? "now " : "next ") + taskRow(task, theme),
+					width,
+				),
+			);
+			return [...header.slice(0, Math.max(0, height - rows.length)), ...rows].slice(0, height);
+		}
+		const leaves = taskTreeLeaves(snapshot.tasks, width, theme);
+		const showFooter = height >= 4;
 		this.pageSize = Math.max(1, height - header.length - (showFooter ? 1 : 0));
 		this.state.scroll = Math.min(this.state.scroll, Math.max(0, leaves.length - this.pageSize));
-		const start = this.state.expanded ? this.state.scroll : 0;
+		const start = this.state.scroll;
 		const result = [...header, ...leaves.slice(start, start + this.pageSize)];
 		if (showFooter)
 			result.push(

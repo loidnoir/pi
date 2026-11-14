@@ -129,20 +129,35 @@ describe("native tasks through real faux-provider calls", () => {
 		expect(getCurrentTools(requests[0].messages).some((tool) => tool.name === "tasks")).toBe(true);
 	});
 
-	it("reconstructs authoritative list state after compaction, reload, and a simulated restart", async () => {
+	it("reconstructs nested task links and independent statuses after compaction, reload, and a simulated restart", async () => {
 		const harness = await fixture();
 		harness.setResponses([
 			call({
 				action: "add",
 				tasks: [
-					{ title: "Keep through compaction", status: "in_progress" },
+					{ title: "Keep through compaction", status: "completed" },
 					{ title: "Retained obsolete work", status: "cancelled" },
 				],
 			}),
+			call({
+				action: "add",
+				tasks: [
+					{ title: "Keep child", parentId: 1, status: "in_progress" },
+					{ title: "Keep sibling", parentId: 1 },
+				],
+			}),
+			call({ action: "add", tasks: [{ title: "Keep grandchild", parentId: 3 }] }),
 			fauxAssistantMessage("Plan recorded."),
 		]);
 		await harness.session.prompt("Plan the investigation.");
 		const expected = restoreTasks(harness.sessionManager.getBranch());
+		expect(expected.tasks).toEqual([
+			{ id: 1, title: "Keep through compaction", status: "completed" },
+			{ id: 2, title: "Retained obsolete work", status: "cancelled" },
+			{ id: 3, title: "Keep child", status: "in_progress", parentId: 1 },
+			{ id: 4, title: "Keep sibling", status: "pending", parentId: 1 },
+			{ id: 5, title: "Keep grandchild", status: "pending", parentId: 3 },
+		]);
 		await harness.session.compact();
 		let runStartPrompt = "";
 		harness.setResponses([
@@ -156,6 +171,8 @@ describe("native tasks through real faux-provider calls", () => {
 		expect(getToolResult(harness, "tasks").details).toMatchObject({ snapshot: expected });
 		expect(runStartPrompt).toContain("Task state at the start of this run");
 		expect(runStartPrompt).toContain("Keep through compaction");
+		expect(runStartPrompt).toContain('#3 [in_progress] "Keep child" (parent #1)');
+		expect(runStartPrompt).toContain('#5 [pending] "Keep grandchild" (parent #3)');
 		await harness.session.reload();
 		harness.setResponses([call({ action: "list" }), fauxAssistantMessage("Reload preserved tasks.")]);
 		await harness.session.prompt("List after reload.");
@@ -165,6 +182,79 @@ describe("native tasks through real faux-provider calls", () => {
 		restarted.setResponses([call({ action: "list" }), fauxAssistantMessage("Restart preserved tasks.")]);
 		await restarted.session.prompt("List restored tasks.");
 		expect(getToolResult(restarted, "tasks").details).toMatchObject({ snapshot: expected });
+	});
+
+	it("moves and detaches subtrees through validated tool calls without changing statuses", async () => {
+		const harness = await fixture();
+		harness.setResponses([
+			call({
+				action: "add",
+				tasks: [
+					{ title: "First parent", status: "completed" },
+					{ title: "Second parent", status: "cancelled" },
+				],
+			}),
+			call({ action: "add", tasks: [{ title: "Child", parentId: 1 }] }),
+			call({ action: "add", tasks: [{ title: "Grandchild", parentId: 3, status: "in_progress" }] }),
+			call({ action: "update", updates: [{ id: 3, parentId: 2 }] }),
+			() => {
+				expect(restoreTasks(harness.sessionManager.getBranch()).tasks).toEqual([
+					{ id: 1, title: "First parent", status: "completed" },
+					{ id: 2, title: "Second parent", status: "cancelled" },
+					{ id: 3, title: "Child", status: "pending", parentId: 2 },
+					{ id: 4, title: "Grandchild", status: "in_progress", parentId: 3 },
+				]);
+				return call({ action: "update", updates: [{ id: 3, parentId: null }] });
+			},
+			fauxAssistantMessage("The subtree is now at the root."),
+		]);
+		await harness.session.prompt("Move a subtask, then detach its subtree.");
+		expect(getToolResult(harness, "tasks").isError).toBe(false);
+		expect(getToolResult(harness, "tasks").details).toMatchObject({
+			snapshot: {
+				revision: 5,
+				tasks: [
+					{ id: 1, title: "First parent", status: "completed" },
+					{ id: 2, title: "Second parent", status: "cancelled" },
+					{ id: 3, title: "Child", status: "pending" },
+					{ id: 4, title: "Grandchild", status: "in_progress", parentId: 3 },
+				],
+			},
+		});
+		expect(restoreTasks(harness.sessionManager.getBranch()).tasks[2]).not.toHaveProperty("parentId");
+	});
+
+	it("rejects a cyclic subtree move without partially applying a validated batch", async () => {
+		const harness = await fixture();
+		harness.setResponses([
+			call({ action: "add", tasks: [{ title: "Parent" }, { title: "Unaffected" }] }),
+			call({ action: "add", tasks: [{ title: "Child", parentId: 1 }] }),
+			call({ action: "add", tasks: [{ title: "Grandchild", parentId: 3 }] }),
+			call({
+				action: "update",
+				updates: [
+					{ id: 2, title: "Must not be published" },
+					{ id: 1, parentId: 4 },
+				],
+			}),
+			fauxAssistantMessage("The invalid move left the tree unchanged."),
+		]);
+		await harness.session.prompt("Exercise invalid subtree reparenting.");
+		const result = getToolResult(harness, "tasks");
+		expect(result.isError).toBe(true);
+		expect(result.details).toMatchObject({
+			error: expect.stringMatching(/cycle/i),
+			snapshot: {
+				revision: 3,
+				nextId: 5,
+				tasks: [
+					{ id: 1, title: "Parent", status: "pending" },
+					{ id: 2, title: "Unaffected", status: "pending" },
+					{ id: 3, title: "Child", status: "pending", parentId: 1 },
+					{ id: 4, title: "Grandchild", status: "pending", parentId: 3 },
+				],
+			},
+		});
 	});
 
 	it("returns unchanged full state for an atomic batch error through normal tool validation", async () => {

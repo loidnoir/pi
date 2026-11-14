@@ -38,7 +38,23 @@ Pi does not ask before every tool call. Review commands and changed files, and u
 
 The built-in `tasks` tool lets the main agent maintain a plan for the current session branch. Tasks have stable IDs and states: `pending`, `in_progress`, `completed`, or `cancelled`. Parallel work can have several tasks in progress. Completed and cancelled items remain available rather than being deleted.
 
-A compact **TODO → Tasks** tree stays above the editor, showing progress, current work, and the next pending item. Press `F3` to expand the retained list, including completed and cancelled work; use `Alt+PageUp` and `Alt+PageDown` to scroll it without changing your draft. Completed items are green and struck through, active items use the accent color, and pending or cancelled items are muted. Cancelled work is counted separately, not as completed. These shortcuts are [configurable](keybindings.md#tasks).
+Tasks can have nested subtasks. Add the parent first, then use its returned ID as `parentId` when adding children. For example, if the parent returned ID `12`:
+
+```json
+{"action":"add","tasks":[{"title":"Check implementation","parentId":12},{"title":"Update documentation","parentId":12}]}
+```
+
+A child can have children of its own. To move a task and its subtree, update that task's `parentId` to another existing ID. Use `null` to detach it to the root; omit `parentId` to leave its relationship unchanged:
+
+```json
+{"action":"update","updates":[{"id":13,"parentId":null}]}
+```
+
+Parents must already exist when children are added; use returned IDs rather than predicting IDs across parallel calls. Missing parents and cycles are rejected without partially applying the batch. Existing flat task lists remain root tasks.
+
+Parent and child statuses are independent: completing or cancelling a parent never changes its children, and completing children never changes the parent. The overall summary counts tasks at every level, while each parent shows its direct-subtask progress. Cancelled tasks are counted separately, not as completed.
+
+A compact **TODO → Tasks** tree stays above the editor, showing progress, current work, and the next pending item with parent context. Expanded views show the nested hierarchy. Press `F3` to expand the retained list, including completed and cancelled work; use `Alt+PageUp` and `Alt+PageDown` to scroll it without changing your draft. Completed items are green and struck through, active items use the accent color, and pending or cancelled items are muted. Cancelled work is counted separately, not as completed. These shortcuts are [configurable](keybindings.md#tasks).
 
 Run `/tasks` for the full, scrollable, view-only pane. It follows your Rex/TUI preferences and accepts `--tui`, `--rex`, `--split`, `--floating`, and `--minimized`. Repeating the command reuses the pane. The pinned tree stays hidden while the pane is opening, open, or minimized, and returns when it closes.
 

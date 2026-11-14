@@ -69,7 +69,7 @@ describe("chat action icons", () => {
 				component.invalidate();
 				const glyph = fileIcon(path, name === "ls" ? "directory" : "file");
 				const fileLabel = glyph ? `${glyph} ${path}` : path;
-				const separator = name === "read" ? "  ·  " : "  ";
+				const separator = name === "read" ? " · " : "  ";
 				expect(stripAnsi(component.render(120).join("\n"))).toContain(
 					`${icon(actionIcon)} ${name}${separator}${fileLabel}`,
 				);
@@ -95,10 +95,10 @@ describe("chat action icons", () => {
 			component.invalidate();
 			const rendered = component.render(100).join("\n");
 			const pathLabel = preset === "nerd" ? "\ue628 src/example.ts" : "src/example.ts";
-			expect(stripAnsi(rendered)).toContain(`${icon("read")} read  ·  ${pathLabel}`);
+			expect(stripAnsi(rendered)).toContain(`${icon("read")} read · ${pathLabel}`);
 			expect(stripAnsi(rendered)).not.toMatch(/[-—]/u);
 			expect(rendered).toContain(
-				`${theme.fg("toolTitle", theme.bold(`${iconPrefix("read")}read`))}${theme.fg("muted", "  ·  ")}`,
+				`${theme.fg("toolTitle", theme.bold(`${iconPrefix("read")}read`))}${theme.fg("muted", " · ")}`,
 			);
 			for (const width of [4, 8, 12, 30])
 				for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
