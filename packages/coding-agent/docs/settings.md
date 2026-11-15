@@ -13,6 +13,8 @@ Add `"$schema": "https://pi.dev/schemas/settings.schema.json"` to `settings.json
 | `defaultProvider` | string | Automatic | Startup AI provider. |
 | `defaultModel` | string | Automatic | Startup model ID. |
 | `defaultThinkingLevel` | `"off" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| "max"` | `"medium"` | Startup thinking level. |
+| `defaultFastMode` | boolean | `false` | Default Codex priority-tier preference (higher usage); inactive on unsupported models. |
+| `modelTargets` | object | None | Model/thinking/fast defaults for `btw` and `role:NAME`; editable through `/model`. |
 | `modelThinkingLevels` | object | None | Per-model startup thinking levels keyed by exact `provider/modelId`. |
 | `thinkingBudgets` | object | Built-in budgets | Token budgets for `minimal`, `low`, `medium`, and `high` thinking levels. |
 | `enabledModels` | `string[]` | All available models | Model patterns used for startup selection and model cycling. Uses the same format as `--models`. |
@@ -22,7 +24,20 @@ Add `"$schema": "https://pi.dev/schemas/settings.schema.json"` to `settings.json
 
 Cache warming runs only when the model declares a cache lifetime and Pi estimates at least $0.05 in avoided cache-miss cost. Refresh usage counts toward session totals but does not enter model context. `/session` shows the next decision; extensions can override it with `cache_warming_decision`. See [Prompt Cache Lifetimes](models.md#prompt-cache-lifetimes).
 
-See [Choose a Model](models.md) for model selection and thinking controls.
+The `/model` dashboard supports session, project, and global scopes. Main project/global changes also apply to the current conversation; BTW/profile defaults apply only to future chats or launches. Existing and resumed children keep their saved selections.
+
+Target fields resolve independently: session → project → global → profile Markdown → main thread. `model` is an exact `{ "provider": "...", "id": "..." }` reference; `thinkingLevel` uses the levels above; `fastMode` is a boolean. Omit a field to inherit the lower scope/profile; set it to `null` to explicitly inherit main. **Reset scope** clears only that scope's overrides. Main defaults continue to use the existing `defaultProvider`, `defaultModel`, and `defaultThinkingLevel` settings, not `modelTargets.main`.
+
+```json
+{
+  "modelTargets": {
+    "btw": { "thinkingLevel": "low", "fastMode": false },
+    "role:reviewer": { "model": null, "thinkingLevel": "high" }
+  }
+}
+```
+
+See [Choose a Model](models.md) for the dashboard and thinking controls.
 
 ## Interaction
 
@@ -90,7 +105,7 @@ On POSIX, new files and directories use owner-only permissions; Windows inherits
 |---|---|---|---|
 | `subagents.maxConcurrent` | positive safe integer | `4` | Maximum active children per parent manager; additional tasks queue until a slot is available. |
 
-Role definitions, descriptions, local tool selections, and optional model/thinking overrides use Markdown files in `<agent-dir>/agents/` or the nearest project `.pi/agents/`, not inline settings objects. See [Native sub-agents](../README.md#native-sub-agents) for the format, trust checks, controls, and history isolation.
+Role definitions, descriptions, local tool selections, and optional baseline model/thinking overrides use Markdown files in `<agent-dir>/agents/` or the nearest project `.pi/agents/`. The `/model` dashboard overlays model controls by profile name through `modelTargets["role:NAME"]`, without rewriting those files. See [Native sub-agents](../README.md#native-sub-agents) for the format, trust checks, controls, and history isolation.
 
 
 ## Sessions and context

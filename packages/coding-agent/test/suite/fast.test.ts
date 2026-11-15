@@ -1,17 +1,41 @@
 import { afterEach, describe, expect, it } from "vitest";
+import type { AgentSession } from "../../src/core/agent-session.ts";
+import { createAgentSession } from "../../src/core/sdk.ts";
 import fastExtension from "../../src/extensions/fast/index.ts";
+import { createTestExtensionsResult, createTestResourceLoader } from "../utilities.ts";
 import { createHarness, createTestUiContext, type Harness } from "./harness.ts";
 
-const fixtures: Harness[] = [];
+const fixtures: Array<{ harness: Harness; session: AgentSession }> = [];
 afterEach(() => {
-	for (const harness of fixtures.splice(0)) harness.cleanup();
+	for (const { harness, session } of fixtures.splice(0)) {
+		session.dispose();
+		harness.cleanup();
+	}
 });
 
 async function fixture() {
-	const harness = await createHarness({ extensionFactories: [fastExtension] });
-	fixtures.push(harness);
-	const codex = { ...harness.getModel(), provider: "openai-codex", api: "openai-codex-responses" };
-	harness.session.agent.state.model = codex;
+	const base = await createHarness();
+	const codex = { ...base.getModel(), provider: "openai-codex", api: "openai-codex-responses" };
+	base.session.modelRuntime.registerProvider(codex.provider, {
+		api: codex.api,
+		apiKey: "faux-key",
+		baseUrl: "https://invalid.example",
+		models: [codex],
+	});
+	const extensionsResult = await createTestExtensionsResult([fastExtension], base.tempDir);
+	const { session } = await createAgentSession({
+		cwd: base.tempDir,
+		agentDir: base.tempDir,
+		modelRuntime: base.session.modelRuntime,
+		model: codex,
+		sessionManager: base.sessionManager,
+		settingsManager: base.settingsManager,
+		resourceLoader: createTestResourceLoader({ extensionsResult }),
+		tools: [],
+	});
+	fixtures.push({ harness: base, session });
+	session.subscribe((event) => base.events.push(event));
+	const harness = { ...base, session };
 	const statuses = new Map<string, string>();
 	const notices: string[] = [];
 	await harness.session.bindExtensions({
@@ -31,19 +55,26 @@ async function fixture() {
 		codex,
 		statuses,
 		notices,
+		// The provider invokes the SDK callback with its actual request model; the extension no longer mutates payloads.
 		payload: () =>
-			harness.session.extensionRunner.emitBeforeProviderRequest({ model: "smoke", service_tier: "auto", input: [] }),
+			session.agent.onPayload?.({ model: "smoke", service_tier: "auto", input: [] }, session.agent.state.model),
 	};
 }
 
 describe("native Codex fast mode", () => {
 	it("requests priority only while enabled and persists transitions", async () => {
-		const { harness, statuses, payload } = await fixture();
+		const { harness, statuses, notices, payload } = await fixture();
+		await harness.session.prompt("/fast status");
+		expect(notices.at(-1)).toBe("Codex fast mode: off");
 		expect(await payload()).toMatchObject({ service_tier: "auto" });
 		await harness.session.prompt("/fast on");
+		await harness.session.prompt("/fast status");
+		expect(notices.at(-1)).toBe("Codex fast mode: on");
 		expect(await payload()).toMatchObject({ model: "smoke", service_tier: "priority", input: [] });
 		expect(statuses.get("fast")).toBe("fast (priority)");
 		await harness.session.prompt("/fast off");
+		await harness.session.prompt("/fast status");
+		expect(notices.at(-1)).toBe("Codex fast mode: off");
 		expect(await payload()).toMatchObject({ service_tier: "auto" });
 		expect(statuses.has("fast")).toBe(false);
 		expect(
@@ -79,6 +110,8 @@ describe("native Codex fast mode", () => {
 			source: "set",
 		});
 		expect(statuses.get("fast")).toBe("fast (inactive)");
+		await harness.session.prompt("/fast status");
+		expect(notices.at(-1)).toBe("Codex fast mode: on (inactive on this provider)");
 		expect(await payload()).toMatchObject({ service_tier: "auto" });
 		await harness.session.prompt("/fast off");
 		await harness.session.prompt("/fast on");

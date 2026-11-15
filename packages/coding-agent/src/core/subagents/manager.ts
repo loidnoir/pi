@@ -16,7 +16,7 @@ import { raceWithAbortSignal } from "../../utils/abort.ts";
 import type { AgentSession } from "../agent-session.ts";
 import { serializeConversation } from "../compaction/utils.ts";
 import { convertToLlm } from "../messages.ts";
-import { resolveModelReference } from "../model-resolver.ts";
+import { getModelTargetPreferences, getSessionFastMode, resolveModelTarget } from "../model-preferences.ts";
 import type { ModelRuntime } from "../model-runtime.ts";
 import { generateDisplayName } from "../naming.ts";
 import { DefaultResourceLoader } from "../resource-loader.ts";
@@ -148,7 +148,21 @@ export class SubagentManager {
 		options.signal?.throwIfAborted();
 		if (!task.trim()) throw new Error("A sub-agent task must not be empty");
 		this.limit();
-		const model = this.resolveModel(role);
+		const settings = this.options.getSettings();
+		const selection = resolveModelTarget(
+			getModelTargetPreferences(settings, this.options.parent, `role:${role.name}`),
+			{
+				model: this.options.getModel(),
+				thinkingLevel: this.options.getThinkingLevel(),
+				fastMode: getSessionFastMode(this.options.parent, settings.defaultFastMode ?? false),
+			},
+			this.options.modelRuntime,
+			role,
+		);
+		const model = selection.model;
+		if (!model) throw new Error("Select a model before starting a sub-agent");
+		if (!this.options.modelRuntime.hasConfiguredAuth(model.provider))
+			throw new Error(`Sub-agent model ${model.provider}/${model.id} has no configured authentication`);
 		const allowed = this.options.getAllowedTools();
 		const tools = role.tools
 			? role.tools.filter((tool) => {
@@ -170,7 +184,8 @@ export class SubagentManager {
 			role,
 			tools,
 			model: { provider: model.provider, id: model.id },
-			thinkingLevel: role.thinkingLevel ?? this.options.getThinkingLevel(),
+			thinkingLevel: selection.thinkingLevel,
+			fastMode: selection.fastMode,
 			task,
 			status: "queued",
 			createdAt: now,
@@ -576,6 +591,8 @@ export class SubagentManager {
 			// A fresh loader preserves repository instructions, not parent extension closures or package-install side effects.
 			const settingsManager = SettingsManager.inMemory({
 				...parentSettings,
+				defaultFastMode: record.fastMode ?? false,
+				modelTargets: {},
 				packages: [],
 				extensions: [],
 				prompts: [],
@@ -778,20 +795,6 @@ export class SubagentManager {
 		return undefined;
 	}
 
-	private resolveModel(role: AgentDefinition): Model<string> {
-		if (!role.model) {
-			const model = this.options.getModel();
-			if (!model) throw new Error("Select a model before starting a sub-agent");
-			return model;
-		}
-		const resolved = resolveModelReference(
-			{ text: role.model, thinkingSuffix: "none", fuzzy: true },
-			this.options.modelRuntime.getModels(),
-			(provider) => this.options.modelRuntime.hasConfiguredAuth(provider),
-		);
-		if (resolved.status !== "resolved") throw new Error(`Sub-agent model ${role.model} is ${resolved.status}`);
-		return resolved.model;
-	}
 	private limit(): number {
 		const value = this.options.getSettings().subagents?.maxConcurrent ?? SETTINGS_DEFAULTS.subagents.maxConcurrent;
 		// Settings originate in unvalidated JSON; positivity/integrality are not expressible in their TS type.

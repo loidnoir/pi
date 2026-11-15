@@ -21,7 +21,7 @@ export function createBtwExtension(agentDir = getAgentDir()): ExtensionFactory {
 		const openings = new Map<string, Promise<SidePane>>();
 
 		function getStore(ctx: ExtensionCommandContext): SideSessionStore {
-			store ??= new SideSessionStore(ctx, agentDir);
+			store ??= new SideSessionStore(ctx, agentDir, () => pi.getSettings());
 			return store;
 		}
 

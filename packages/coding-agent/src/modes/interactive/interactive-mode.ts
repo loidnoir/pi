@@ -97,6 +97,8 @@ import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import { createCompactionSummaryMessage, createCustomMessage } from "../../core/messages.ts";
+import { createModelDashboardOptions } from "../../core/model-dashboard-controller.ts";
+import { getSessionFastMode, supportsFastMode } from "../../core/model-preferences.ts";
 import {
 	defaultModelPerProvider,
 	findExactModelReferenceMatch,
@@ -104,6 +106,9 @@ import {
 } from "../../core/model-resolver.ts";
 import { CredentialSynchronizationError } from "../../core/model-runtime.ts";
 import { DefaultPackageManager } from "../../core/package-manager.ts";
+import { parsePaneCommand } from "../../core/panes/command.ts";
+import { openPane, type PaneHandle, type PaneOptions } from "../../core/panes/host.ts";
+import { ModelDashboardView } from "../../core/panes/model-dashboard.ts";
 import { findMatchingProviders } from "../../core/provider-matching.ts";
 import { RADIUS_PROVIDER_ID } from "../../core/radius.ts";
 import { planRadiusMcpServer } from "../../core/radius-mcp.ts";
@@ -464,6 +469,12 @@ interface ExtensionChangelogUpdate {
 	markdown: string;
 }
 
+interface ModelDashboardPane {
+	controller: AbortController;
+	opening: Promise<PaneHandle>;
+	saves: Set<Promise<void>>;
+}
+
 export class InteractiveMode {
 	private runtimeHost: AgentSessionRuntime;
 	private renderer: TuiMainScreen | TuiAltScreen;
@@ -512,6 +523,9 @@ export class InteractiveMode {
 	/** Last cache-warming notice, extended in place while it is the last chat line. */
 	private cacheWarmingNotice: { component: ThemedText; total: { cost: number }; note: string | undefined } | undefined;
 	private anthropicSubscriptionWarningShown = false;
+	private modelDashboard: ModelDashboardPane | undefined;
+	private modelDashboardClosing: Promise<void> | undefined;
+	private modelDashboardSuspensions = 0;
 
 	// Status line tracking (for mutating immediately-sequential status updates)
 	private lastStatusSpacer: Spacer | undefined = undefined;
@@ -645,6 +659,7 @@ export class InteractiveMode {
 		this.options = { ...options, tuiMode };
 		this.autoTrustOnReloadCwd = options.autoTrustOnReloadCwd;
 		this.runtimeHost.setBeforeSessionInvalidate(() => {
+			void this.closeModelDashboard();
 			this.unsubscribeRecovery?.();
 			this.unsubscribeRecovery = undefined;
 			this.recoveryStatus = undefined;
@@ -1088,7 +1103,7 @@ export class InteractiveMode {
 						`${keyText("app.model.cycleForward")}/${keyText("app.model.cycleBackward")}`,
 						"to cycle models",
 					),
-					hint("app.model.select", "to select model"),
+					hint("app.model.select", "for model dashboard"),
 					hint("app.tools.expand", "to expand tools"),
 					hint("app.thinking.toggle", "to expand thinking"),
 					hint("app.editor.external", "for external editor"),
@@ -2123,14 +2138,14 @@ export class InteractiveMode {
 				newSession: async (options) => {
 					this.clearStatusIndicator();
 					try {
-						return await this.runtimeHost.newSession(options);
+						return await this.withModelDashboardClosed(() => this.runtimeHost.newSession(options));
 					} catch (error: unknown) {
 						return this.handleFatalRuntimeError("Failed to create session", error);
 					}
 				},
 				fork: async (entryId, options) => {
 					try {
-						const result = await this.runtimeHost.fork(entryId, options);
+						const result = await this.withModelDashboardClosed(() => this.runtimeHost.fork(entryId, options));
 						if (!result.cancelled) {
 							this.editor.setText(result.selectedText ?? "");
 							this.showStatus("Forked to new session");
@@ -3304,7 +3319,7 @@ export class InteractiveMode {
 
 		// Global debug handler on TUI (works regardless of focus)
 		this.ui.onDebug = () => this.handleDebugCommand();
-		this.defaultEditor.onAction("app.model.select", () => this.showModelSelector());
+		this.defaultEditor.onAction("app.model.select", () => void this.showModelDashboard());
 		this.defaultEditor.onAction("app.tools.expand", () => this.toggleToolOutputExpansion());
 		this.defaultEditor.onAction("app.thinking.toggle", () => this.toggleThinkingBlockVisibility());
 		this.defaultEditor.onAction("app.editor.external", () => void this.handleOpenExternalEditor());
@@ -4563,6 +4578,7 @@ export class InteractiveMode {
 	private async shutdown(options?: { fromSignal?: boolean }): Promise<void> {
 		if (this.isShuttingDown) return;
 		this.isShuttingDown = true;
+		await this.closeModelDashboard();
 		// Keep signal handlers registered until terminal cleanup has completed.
 		// `signal-exit` checks the listener list during the same SIGTERM/SIGHUP
 		// dispatch and re-sends the signal if only its own listeners remain.
@@ -5477,13 +5493,20 @@ export class InteractiveMode {
 		});
 	}
 
-	private async handleModelCommand(searchTerm?: string): Promise<void> {
-		if (!searchTerm) {
-			this.showModelSelector();
+	private async handleModelCommand(searchTerm = ""): Promise<void> {
+		let parsed: ReturnType<typeof parsePaneCommand>;
+		try {
+			parsed = parsePaneCommand(searchTerm);
+		} catch (error) {
+			this.showError(error instanceof Error ? error.message : String(error));
+			return;
+		}
+		if (!parsed.text) {
+			await this.showModelDashboard(parsed.options);
 			return;
 		}
 
-		const model = await this.findExactModelMatch(searchTerm);
+		const model = await this.findExactModelMatch(parsed.text);
 		if (model) {
 			try {
 				await this.session.setModel(model, { persist: false });
@@ -5497,7 +5520,129 @@ export class InteractiveMode {
 			return;
 		}
 
-		this.showModelSelector(searchTerm);
+		this.showModelSelector(parsed.text);
+	}
+
+	private async showModelDashboard(
+		presentation: Pick<PaneOptions, "backend" | "placement" | "minimized"> = {},
+	): Promise<void> {
+		if (this.isShuttingDown || this.modelDashboardSuspensions > 0) return;
+		const session = this.session;
+		if (this.modelDashboardClosing) await this.modelDashboardClosing;
+		if (this.isShuttingDown || this.modelDashboardSuspensions > 0 || this.session !== session) return;
+		let dashboard = this.modelDashboard;
+		try {
+			if (!dashboard) {
+				const controller = new AbortController();
+				const options = createModelDashboardOptions(
+					session,
+					this.settingsManager,
+					this.runtimeHost.services.agentDir,
+					controller.signal,
+				);
+				options.onClose = () => controller.abort();
+				const ui = this.createExtensionUIContext();
+				const save = options.save;
+				const saves = new Set<Promise<void>>();
+				options.save = async (...args) => {
+					controller.signal.throwIfAborted();
+					const saving = save(...args);
+					saves.add(saving);
+					try {
+						await saving;
+					} finally {
+						saves.delete(saving);
+						if (!controller.signal.aborted && this.session === session) {
+							// Applying the current selection can succeed even if persisting its defaults fails.
+							this.updateAvailableProviderCount();
+							const enabled = getSessionFastMode(
+								session.sessionManager,
+								this.settingsManager.getSettings().defaultFastMode ?? false,
+							);
+							ui.setStatus(
+								"fast",
+								enabled ? (supportsFastMode(session.model) ? "fast (priority)" : "fast (inactive)") : undefined,
+							);
+							this.footer.invalidate();
+							this.updateEditorBorderColor();
+							void this.maybeWarnAboutAnthropicSubscriptionAuth();
+						}
+					}
+					if (!controller.signal.aborted && this.session === session) {
+						this.showStatus(`Model settings saved (${args[1]})`);
+					}
+				};
+				dashboard = {
+					controller,
+					saves,
+					opening: openPane(
+						{ ui, cwd: this.sessionManager.getCwd(), mode: "tui" },
+						{
+							...presentation,
+							title: "Models",
+							signal: controller.signal,
+							create: (controls) => {
+								controller.signal.throwIfAborted();
+								return new ModelDashboardView(controls, options);
+							},
+						},
+					),
+				};
+				this.modelDashboard = dashboard;
+				const current = dashboard;
+				void current.opening.then(
+					(handle) =>
+						handle.closed.then(() => {
+							current.controller.abort();
+							if (this.modelDashboard === current) this.modelDashboard = undefined;
+						}),
+					() => {
+						if (this.modelDashboard === current) this.modelDashboard = undefined;
+					},
+				);
+				await dashboard.opening;
+			} else {
+				const handle = await dashboard.opening;
+				if (!dashboard.controller.signal.aborted) await handle.show();
+			}
+		} catch (error) {
+			if (!dashboard?.controller.signal.aborted) {
+				this.showError(error instanceof Error ? error.message : String(error));
+			}
+		}
+	}
+
+	private closeModelDashboard(): Promise<void> {
+		if (this.modelDashboardClosing) return this.modelDashboardClosing;
+		const dashboard = this.modelDashboard;
+		if (!dashboard) return Promise.resolve();
+		dashboard.controller.abort();
+		this.modelDashboardClosing = (async () => {
+			try {
+				const handle = await dashboard.opening;
+				await handle.close();
+			} catch (error) {
+				// Aborted openings are expected; an established pane can still report cleanup errors.
+				if (!(error instanceof Error && error.name === "AbortError")) {
+					this.showWarning(`Model dashboard cleanup: ${error instanceof Error ? error.message : String(error)}`);
+				}
+			} finally {
+				await Promise.allSettled([...dashboard.saves]);
+				if (this.modelDashboard === dashboard) this.modelDashboard = undefined;
+				this.modelDashboardClosing = undefined;
+			}
+		})();
+		return this.modelDashboardClosing;
+	}
+
+	private async withModelDashboardClosed<T>(action: () => Promise<T>): Promise<T> {
+		this.modelDashboardSuspensions++;
+		try {
+			await this.closeModelDashboard();
+			return await action();
+		} finally {
+			this.modelDashboardSuspensions--;
+		}
 	}
 
 	private async findExactModelMatch(searchTerm: string): Promise<Model<any> | undefined> {
@@ -5799,7 +5944,7 @@ export class InteractiveMode {
 				async (entryId) => {
 					done();
 					try {
-						const result = await this.runtimeHost.fork(entryId);
+						const result = await this.withModelDashboardClosed(() => this.runtimeHost.fork(entryId));
 						if (result.cancelled) {
 							this.ui.requestRender();
 							return;
@@ -5829,7 +5974,7 @@ export class InteractiveMode {
 		}
 
 		try {
-			const result = await this.runtimeHost.fork(leafId, { position: "at" });
+			const result = await this.withModelDashboardClosed(() => this.runtimeHost.fork(leafId, { position: "at" }));
 			if (result.cancelled) {
 				this.ui.requestRender();
 				return;
@@ -6040,10 +6185,12 @@ export class InteractiveMode {
 	): Promise<{ cancelled: boolean }> {
 		this.clearStatusIndicator();
 		try {
-			const result = await this.runtimeHost.switchSession(sessionPath, {
-				withSession: options?.withSession,
-				projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
-			});
+			const result = await this.withModelDashboardClosed(() =>
+				this.runtimeHost.switchSession(sessionPath, {
+					withSession: options?.withSession,
+					projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
+				}),
+			);
 			if (result.cancelled) {
 				return result;
 			}
@@ -6056,11 +6203,13 @@ export class InteractiveMode {
 					this.showStatus("Resume cancelled");
 					return { cancelled: true };
 				}
-				const result = await this.runtimeHost.switchSession(sessionPath, {
-					cwdOverride: selectedCwd,
-					withSession: options?.withSession,
-					projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
-				});
+				const result = await this.withModelDashboardClosed(() =>
+					this.runtimeHost.switchSession(sessionPath, {
+						cwdOverride: selectedCwd,
+						withSession: options?.withSession,
+						projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
+					}),
+				);
 				if (result.cancelled) {
 					return result;
 				}
@@ -6693,6 +6842,10 @@ export class InteractiveMode {
 			return;
 		}
 
+		await this.withModelDashboardClosed(() => this.reloadSessionResources());
+	}
+
+	private async reloadSessionResources(): Promise<void> {
 		this.resetExtensionUI();
 
 		const reloadBox = new Container();
@@ -6835,7 +6988,7 @@ export class InteractiveMode {
 
 		try {
 			this.clearStatusIndicator();
-			const result = await this.runtimeHost.importFromJsonl(inputPath);
+			const result = await this.withModelDashboardClosed(() => this.runtimeHost.importFromJsonl(inputPath));
 			if (result.cancelled) {
 				this.showStatus("Import cancelled");
 				return;
@@ -6848,7 +7001,9 @@ export class InteractiveMode {
 					this.showStatus("Import cancelled");
 					return;
 				}
-				const result = await this.runtimeHost.importFromJsonl(inputPath, selectedCwd);
+				const result = await this.withModelDashboardClosed(() =>
+					this.runtimeHost.importFromJsonl(inputPath, selectedCwd),
+				);
 				if (result.cancelled) {
 					this.showStatus("Import cancelled");
 					return;
@@ -7155,7 +7310,7 @@ export class InteractiveMode {
 | \`${suspend}\` | Suspend to background |
 | \`${cycleThinkingLevel}\` | Cycle thinking level |
 | \`${cycleModelForward}\` / \`${cycleModelBackward}\` | Cycle models |
-| \`${selectModel}\` | Open model selector |
+| \`${selectModel}\` | Open model dashboard |
 | \`${expandTools}\` | Toggle tool output expansion |
 | \`${toggleThinking}\` | Toggle thinking block visibility |
 | \`${externalEditor}\` | Edit message in external editor |
@@ -7196,7 +7351,7 @@ export class InteractiveMode {
 	private async handleClearCommand(): Promise<void> {
 		this.clearStatusIndicator();
 		try {
-			const result = await this.runtimeHost.newSession();
+			const result = await this.withModelDashboardClosed(() => this.runtimeHost.newSession());
 			if (result.cancelled) {
 				return;
 			}
@@ -7358,6 +7513,7 @@ export class InteractiveMode {
 	}
 
 	stop(fullscreenExitOutput = this.settingsManager.getFullscreenExitOutput()): void {
+		void this.closeModelDashboard();
 		this.disposeActiveSelector();
 		if (this.settingsManager.getShowTerminalProgress()) {
 			this.ui.terminal.setProgress(false);

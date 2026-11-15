@@ -2767,13 +2767,22 @@ export class AgentSession {
 	 * Set model directly.
 	 * Validates that auth is configured and saves to the session transcript.
 	 * Persists to global defaults only when options.persist is true.
-	 * @throws Error if no auth is configured for the model
+	 * Checks options.signal and options.when after authentication, before applying any changes.
+	 * @throws Error if no auth is configured, the signal is aborted, or idle is required but the session is busy
 	 */
-	async setModel(model: Model<any>, options: ModelMutationOptions = {}): Promise<void> {
+	async setModel(
+		model: Model<any>,
+		options: ModelMutationOptions & { signal?: AbortSignal; when?: "idle" } = {},
+	): Promise<void> {
+		options.signal?.throwIfAborted();
 		if (!(await this._modelRuntime.checkAuth(model.provider))) {
 			throw new Error(`No API key for ${model.provider}/${model.id}`);
 		}
 
+		options.signal?.throwIfAborted();
+		if (options.when === "idle" && !this.isIdle) {
+			throw new Error("Wait for the current operation to finish before changing the session model.");
+		}
 		const previousModel = this.model;
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(model);
 		this.agent.state.model = model;

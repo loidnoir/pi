@@ -12,6 +12,7 @@ import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { createToolNameMatcher } from "./mcp-servers.ts";
 import { convertToLlm } from "./messages.ts";
+import { applyFastMode, getSessionFastMode } from "./model-preferences.ts";
 import { findInitialModel } from "./model-resolver.ts";
 import { ModelRuntime } from "./model-runtime.ts";
 import type { ResourceLoader } from "./resource-loader.ts";
@@ -371,10 +372,16 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			);
 		};
 	};
-	const transformProviderPayload = async (payload: unknown) => {
+	const transformProviderPayload = async (payload: unknown, model: Model<string>) => {
 		const runner = extensionRunnerRef.current;
-		if (!runner?.hasHandlers("before_provider_request")) return payload;
-		return runner.emitBeforeProviderRequest(payload);
+		const transformed = runner?.hasHandlers("before_provider_request")
+			? await runner.emitBeforeProviderRequest(payload)
+			: payload;
+		return applyFastMode(
+			transformed,
+			model,
+			getSessionFastMode(sessionManager, settingsManager.getSettings().defaultFastMode ?? false),
+		);
 	};
 	const handleProviderResponse: NonNullable<ModelsSimpleStreamOptions["onResponse"]> = async (response) => {
 		const runner = extensionRunnerRef.current;

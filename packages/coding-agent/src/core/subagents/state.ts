@@ -33,6 +33,7 @@ const RecordSchema = Type.Object({
 	tools: Type.Array(Type.String()),
 	model: Type.Object({ provider: Type.String(), id: Type.String() }),
 	thinkingLevel: ModelThinkingLevelSchema,
+	fastMode: Type.Optional(Type.Boolean()),
 	task: Type.String(),
 	label: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
 	labelError: Type.Optional(Type.String()),

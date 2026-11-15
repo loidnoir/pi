@@ -261,6 +261,23 @@ const SkillsInputSchema = Type.Union(
 	{ description: "Local skill file paths or directories." },
 );
 
+/** Per-target model controls. Null explicitly inherits the main thread; omission inherits lower scopes. */
+export const ModelPreferencesSchema = Type.Object(
+	{
+		model: Type.Optional(
+			Type.Union([
+				Type.Object({ provider: Type.String({ minLength: 1 }), id: Type.String({ minLength: 1 }) }),
+				Type.Null(),
+			]),
+		),
+		thinkingLevel: Type.Optional(Type.Union([ModelThinkingLevelSchema, Type.Null()])),
+		fastMode: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
+	},
+	{ additionalProperties: false },
+);
+
+export type ModelPreferences = Static<typeof ModelPreferencesSchema>;
+
 export const SettingsSchema = Type.Object(
 	{
 		$schema: Type.Optional(Type.String({ description: "JSON Schema reference." })),
@@ -273,6 +290,14 @@ export const SettingsSchema = Type.Object(
 		defaultProvider: Type.Optional(Type.String()),
 		defaultModel: Type.Optional(Type.String()),
 		defaultThinkingLevel: Type.Optional(ModelThinkingLevelSchema),
+		defaultFastMode: Type.Optional(
+			Type.Boolean({ description: "Enable Codex priority tier by default (higher usage)." }),
+		),
+		modelTargets: Type.Optional(
+			Type.Record(Type.String(), ModelPreferencesSchema, {
+				description: 'Model controls for "btw" and "role:NAME". Project fields override global fields.',
+			}),
+		),
 		modelThinkingLevels: Type.Optional(
 			Type.Record(Type.String(), ModelThinkingLevelSchema, {
 				description: 'Per-model default thinking level overrides keyed by "provider/modelId".',

@@ -8,6 +8,14 @@ import { Compile } from "typebox/compile";
 import { getAgentDir } from "../config.ts";
 import { stripAnsi } from "../utils/ansi.ts";
 import { sanitizeBinaryOutput } from "../utils/shell.ts";
+import { THINKING_LEVEL_OPTIONS } from "./defaults.ts";
+import type { ExtensionContext } from "./extensions/types.ts";
+import {
+	getModelTargetPreferences,
+	getSessionFastMode,
+	type ResolvedModelPreferences,
+	resolveModelTarget,
+} from "./model-preferences.ts";
 import {
 	buildSessionProjection,
 	type FileEntry,
@@ -16,6 +24,7 @@ import {
 	type SessionHeader,
 	SessionManager,
 } from "./session-manager.ts";
+import type { Settings } from "./settings-manager.ts";
 
 export interface SideSessionInfo {
 	id: string;
@@ -120,9 +129,21 @@ export class SideSessionStore {
 	private readonly agentDir: string;
 	private readonly directory?: string;
 	private readonly chats: Map<string, StoredSideSession>;
+	private readonly context: { sessionManager: ReadonlySessionManager } & Partial<
+		Pick<ExtensionContext, "model" | "thinkingLevel" | "modelRegistry">
+	>;
+	private readonly getSettings: () => Settings;
 
-	constructor(ctx: { sessionManager: ReadonlySessionManager }, agentDir = getAgentDir()) {
+	constructor(
+		ctx: { sessionManager: ReadonlySessionManager } & Partial<
+			Pick<ExtensionContext, "model" | "thinkingLevel" | "modelRegistry">
+		>,
+		agentDir = getAgentDir(),
+		getSettings: () => Settings = () => ({}),
+	) {
 		this.parent = ctx.sessionManager;
+		this.context = ctx;
+		this.getSettings = getSettings;
 		this.agentDir = resolve(agentDir);
 		const file = this.parent.getSessionFile();
 		if (file) {
@@ -181,6 +202,26 @@ export class SideSessionStore {
 			parentLeafId: this.parent.getLeafId(),
 		};
 		if (reference.parentFile) readParent(reference.parentFile, reference);
+		const settings = this.getSettings();
+		const parentContext = this.parent.buildSessionProjection();
+		const main: ResolvedModelPreferences = {
+			model: this.context.model,
+			thinkingLevel:
+				this.context.thinkingLevel ??
+				THINKING_LEVEL_OPTIONS.find((level) => level === parentContext.thinkingLevel) ??
+				"off",
+			fastMode: getSessionFastMode(this.parent, settings.defaultFastMode ?? false),
+		};
+		const selection = this.context.modelRegistry
+			? resolveModelTarget(
+					getModelTargetPreferences(settings, this.parent, "btw"),
+					main,
+					this.context.modelRegistry.runtime,
+				)
+			: main;
+		const model = selection.model
+			? { provider: selection.model.provider, modelId: selection.model.id }
+			: parentContext.model;
 		const id = randomUUID();
 		let manager: SessionManager;
 		if (this.directory) {
@@ -201,6 +242,9 @@ export class SideSessionStore {
 			manager = SessionManager.inMemory(this.parent.getCwd(), { id });
 		}
 		manager.appendCustomEntry("pi.btw", reference);
+		if (model) manager.appendModelChange(model.provider, model.modelId);
+		manager.appendThinkingLevelChange(selection.thinkingLevel);
+		manager.appendCustomEntry("chatgpt-fast-mode", { enabled: selection.fastMode });
 		const title = sanitizeBinaryOutput(stripAnsi(question)).replace(/\s+/gu, " ").trim().slice(0, 80);
 		manager.appendSessionInfo(title);
 		manager.appendMessage({ role: "user", content: question, timestamp: Date.now() });
@@ -208,7 +252,7 @@ export class SideSessionStore {
 			manager,
 			reference,
 			this.agentDir,
-			parentFile ? undefined : this.parent.buildSessionProjection().messages,
+			parentFile ? undefined : parentContext.messages,
 		);
 		this.chats.set(id, chat);
 		return chat;

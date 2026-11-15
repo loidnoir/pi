@@ -29,6 +29,66 @@
     "defaultThinkingLevel": {
       "$ref": "#/$defs/ModelThinkingLevel"
     },
+    "defaultFastMode": {
+      "type": "boolean",
+      "description": "Enable Codex priority tier by default (higher usage)."
+    },
+    "modelTargets": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "type": "object",
+          "properties": {
+            "model": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "provider",
+                    "id"
+                  ],
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "thinkingLevel": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ModelThinkingLevel"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "fastMode": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "description": "Model controls for \"btw\" and \"role:NAME\". Project fields override global fields."
+    },
     "modelThinkingLevels": {
       "type": "object",
       "patternProperties": {

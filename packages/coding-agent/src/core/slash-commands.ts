@@ -18,7 +18,11 @@ export interface BuiltinSlashCommand {
 
 export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "settings", description: "Open settings menu" },
-	{ name: "model", description: "Select model (opens selector UI)", argumentHint: "<provider/model>" },
+	{
+		name: "model",
+		description: "Open model dashboard, or switch/search models",
+		argumentHint: "[--rex|--tui] [--floating|--split] [--minimized] [provider/model]",
+	},
 	{ name: "tree", description: "Navigate session tree (switch branches)" },
 	{ name: "thinking", description: "Set thinking level", argumentHint: "<level>" },
 	{ name: "effort", description: "Set model reasoning effort (same as /thinking)", argumentHint: "<level>" },

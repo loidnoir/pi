@@ -12,6 +12,7 @@ import lockfile from "proper-lockfile";
 import { THINKING_LEVEL_OPTIONS } from "./defaults.ts";
 import type { ExtensionContext, ExtensionToolContext } from "./extensions/types.ts";
 import { convertToLlm } from "./messages.ts";
+import { applyFastMode, getSessionFastMode } from "./model-preferences.ts";
 import { configureOutputArtifacts } from "./output-artifacts.ts";
 import type { StoredSideSession } from "./side-session-store.ts";
 import { createReadOnlyToolDefinitions, createReadOnlyTools } from "./tools/index.ts";
@@ -155,6 +156,7 @@ export function openSideSession(ctx: ExtensionContext, stored: StoredSideSession
 				return messages;
 			},
 			streamFn: (model, context, options) => ctx.modelRegistry.streamSimple(model, context, options),
+			onPayload: (payload, model) => applyFastMode(payload, model, getSessionFastMode(stored.sessionManager)),
 			sessionId: stored.id,
 		},
 		check,
@@ -262,6 +264,7 @@ export function openSideSession(ctx: ExtensionContext, stored: StoredSideSession
 /** Create a standalone ephemeral agent, retaining the original SDK API and read-only behavior. */
 export function createSideSession(ctx: SideSessionContext): Agent {
 	if (!ctx.model) throw new Error("Select a model before opening /btw");
+	const fastMode = getSessionFastMode(ctx.sessionManager);
 	const agent = new Agent({
 		initialState: {
 			systemPrompt: `${ctx.getSystemPrompt()}\n\n${sideInstructions} This conversation is discarded when its view closes.`,
@@ -271,6 +274,7 @@ export function createSideSession(ctx: SideSessionContext): Agent {
 		},
 		convertToLlm,
 		streamFn: (model, context, options) => ctx.modelRegistry.streamSimple(model, context, options),
+		onPayload: (payload, model) => applyFastMode(payload, model, fastMode),
 		sessionId: randomUUID(),
 	});
 	agent.state.messages = [

@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
+import { Compile } from "typebox/compile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import type { IconPreset } from "../modes/interactive/icons.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
@@ -28,6 +29,7 @@ import type {
 	TuiMode,
 	WarningSettings,
 } from "./settings-schema.ts";
+import { type ModelPreferences, ModelPreferencesSchema } from "./settings-schema.ts";
 
 export type {
 	BranchSummarySettings,
@@ -58,6 +60,7 @@ export type {
 export const CACHE_WARMING_MODES = ["off", "streaming", "idle"] as const satisfies readonly CacheWarmingMode[];
 
 const DEFAULT_COMPACTION_SETTINGS: Required<CompactionModelOverride> = SETTINGS_DEFAULTS.compaction;
+const modelPreferencesValidator = Compile(ModelPreferencesSchema);
 
 /** Validate compaction values from settings files, which are not schema-validated on load. */
 function readCompactionSetting(value: unknown, field: keyof CompactionModelOverride, path: string): number | undefined {
@@ -415,6 +418,10 @@ export class SettingsManager {
 
 	/** Migrate old settings format to new format */
 	private static migrateSettings(settings: Record<string, unknown>): Settings {
+		// Settings files are unvalidated JSON; a malformed paid-tier preference must never enable priority requests.
+		if (settings.defaultFastMode !== undefined && typeof settings.defaultFastMode !== "boolean") {
+			throw new Error("Invalid defaultFastMode setting: expected a boolean");
+		}
 		// Migrate queueMode -> steeringMode
 		if ("queueMode" in settings && !("steeringMode" in settings)) {
 			settings.steeringMode = settings.queueMode;
@@ -761,6 +768,67 @@ export class SettingsManager {
 		this.markModified("defaultProvider");
 		this.markModified("defaultModel");
 		this.save();
+	}
+
+	/** Read one unmerged dashboard layer without confusing saved defaults with current session state. */
+	getModelPreferences(scope: SettingsScope, target: string): ModelPreferences {
+		const loadError = scope === "global" ? this.globalSettingsLoadError : this.projectSettingsLoadError;
+		if (loadError) throw new Error(`Cannot read ${scope} model preferences: ${loadError.message}`);
+		const settings = scope === "global" ? this.globalSettings : this.projectSettings;
+		const provider =
+			settings.defaultProvider ?? (scope === "project" ? this.globalSettings.defaultProvider : undefined);
+		const modelId = settings.defaultModel ?? (scope === "project" ? this.globalSettings.defaultModel : undefined);
+		const value =
+			target === "main"
+				? {
+						...((settings.defaultProvider !== undefined || settings.defaultModel !== undefined) &&
+						provider &&
+						modelId
+							? { model: { provider, id: modelId } }
+							: {}),
+						...(settings.defaultThinkingLevel !== undefined
+							? { thinkingLevel: settings.defaultThinkingLevel }
+							: {}),
+						...(settings.defaultFastMode !== undefined ? { fastMode: settings.defaultFastMode } : {}),
+					}
+				: (settings.modelTargets?.[target] ?? {});
+		// Settings files are unvalidated JSON; invalid model controls must not silently select another model.
+		if (!modelPreferencesValidator.Check(value)) throw new Error(`Invalid ${scope} model preferences for ${target}`);
+		return structuredClone(value);
+	}
+
+	/** Replace one target's saved layer, preserving other targets and unrelated settings. */
+	setModelPreferences(scope: SettingsScope, target: string, preferences: ModelPreferences): void {
+		if (scope === "project") this.assertProjectTrustedForWrite();
+		const loadError = scope === "global" ? this.globalSettingsLoadError : this.projectSettingsLoadError;
+		if (loadError) throw new Error(`Cannot save ${scope} model preferences: ${loadError.message}`);
+		const settings = structuredClone(scope === "global" ? this.globalSettings : this.projectSettings);
+		const mark = (field: keyof Settings, nestedKey?: string) => {
+			if (scope === "global") this.markModified(field, nestedKey);
+			else this.markProjectModified(field, nestedKey);
+		};
+		if (target === "main") {
+			const previous = this.getModelPreferences(scope, target).model;
+			const unchanged = preferences.model?.provider === previous?.provider && preferences.model?.id === previous?.id;
+			// Legacy provider and model IDs can be split across scopes. Unchanged drafts must not pin inherited halves.
+			if (preferences.model === null || !unchanged) {
+				settings.defaultProvider = preferences.model?.provider;
+				settings.defaultModel = preferences.model?.id;
+			}
+			settings.defaultThinkingLevel = preferences.thinkingLevel ?? undefined;
+			settings.defaultFastMode = preferences.fastMode ?? undefined;
+			for (const field of ["defaultProvider", "defaultModel", "defaultThinkingLevel", "defaultFastMode"] as const)
+				mark(field);
+		} else {
+			settings.modelTargets ??= {};
+			if (Object.keys(preferences).length) settings.modelTargets[target] = structuredClone(preferences);
+			else delete settings.modelTargets[target];
+			mark("modelTargets", target);
+		}
+		if (scope === "global") {
+			this.globalSettings = settings;
+			this.save();
+		} else this.saveProjectSettings(settings);
 	}
 
 	getSteeringMode(): "all" | "one-at-a-time" {

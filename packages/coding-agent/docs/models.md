@@ -26,13 +26,17 @@ Keep `auth.json` and any credential commands private. Project settings and exten
 
 ## Select a model
 
-Run `/model` to search available models. The picker shows models whose providers have usable authentication. Press `Ctrl+S` on a model to save it as the default for new sessions.
+Run `/model` to open the model dashboard. It lists the main thread, the default for new BTW chats, and each sub-agent profile, with effective model, thinking level, and fast-mode state. Select a target to edit a draft, choose **Session**, **Project**, or **Global** scope, then **Apply**. Main-thread changes apply now; project/global also save startup defaults. BTW/profile changes affect only new chats or launches, never existing chats, submitted children, or resumed children.
+
+The dashboard uses the shared Rex view when available and a Pi overlay otherwise. Presentation flags work as with `/agents`: `/model --tui`, `/model --rex --floating`, or `/model --split`. The model-selection shortcut opens the same dashboard. `/model provider/model-id` still switches the main model directly; a search argument opens the searchable model picker. Pickers list models whose providers have usable authentication.
+
+Each field can inherit the lower scope/profile or explicitly inherit the main thread. **Reset scope** clears that scope's draft; Apply saves the reset. Main resets restore startup/lower-scope defaults. The view shows provider, context limit, and token prices. Thinking choices follow model capabilities. Fast mode is Codex priority tier, with higher usage; it is inactive on unsupported models. Existing per-model thinking defaults remain in effect when switching models.
 
 Run `/thinking` to select the thinking level for the current model. Press `Ctrl+S` there to save the startup level. Pi limits the choices to levels supported by the selected model.
 
 `Ctrl+P` cycles through available models. Use `/scoped-models` to control that cycle and save the selection, or configure model patterns through [Settings](settings.md#model-cycling).
 
-A session records model and thinking-level changes. Resuming the session restores them without changing defaults for new sessions.
+A session records model, thinking-level, fast-mode, and target-default changes. Resuming the session restores them without changing defaults for new sessions. Existing BTW chats keep their own saved model/thinking/fast selection, including after defaults change.
 
 ## Connect local models
 
