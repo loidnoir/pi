@@ -1,7 +1,7 @@
 // Thin Rex terminal frontend: only frames and input cross the channel; no session transcript is saved.
 import { readFileSync, unlinkSync } from "node:fs";
 import { connect } from "node:net";
-import { ProcessTerminal, TuiAltScreen } from "@earendil-works/pi-tui";
+import { ProcessTerminal, TuiAltScreen, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { Compile } from "typebox/compile";
 import { localProof, receivePackets, sendPacket, verifyLocalProof } from "../local-channel.ts";
 import { PaneCredentialsSchema, PaneOutputSchema } from "./protocol.ts";
@@ -25,6 +25,7 @@ export async function runPaneClient(credentialPath: string): Promise<void> {
 	const closed = Promise.withResolvers<void>();
 	const component = {
 		focused: true,
+		capturesViewportInput: true,
 		render(width: number) {
 			const nextColumns = Math.max(1, Math.min(width, 1000));
 			const nextRows = Math.max(1, Math.min(terminal.rows, 500));
@@ -37,6 +38,11 @@ export async function runPaneClient(credentialPath: string): Promise<void> {
 		},
 		handleInput(data: string) {
 			if (authenticated) sendPacket(socket, { type: "input", data });
+		},
+		handleMouse(event: TuiMouseEvent) {
+			if (event.type !== "wheel") return undefined;
+			if (authenticated) sendPacket(socket, { type: "scroll", lines: event.wheelDelta ?? 0 });
+			return { handled: true };
 		},
 		invalidate() {},
 	};

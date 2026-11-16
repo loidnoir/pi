@@ -69,6 +69,103 @@ function output(view: JobsView, width = 80, height = 100): string[] {
 	return lines.slice(start, end);
 }
 
+describe("background job list", () => {
+	it("puts starting and running jobs first while preserving newest-first order within both groups", async () => {
+		const { view, manager, job } = await fixture("");
+		const jobs: JobInfo[] = [
+			{ ...job, id: "completed-new", name: "Newest completed" },
+			{
+				...job,
+				id: "unreachable-new",
+				name: "Unreachable",
+				runtime: { state: "unreachable", startedAt: 0, error: "No reply" },
+			},
+			{ ...job, id: "starting-new", name: "Starting", runtime: { state: "starting", startedAt: 0 } },
+			{
+				...job,
+				id: "running-old",
+				name: "Running",
+				runtime: { state: "running", startedAt: 0, workerPid: 1, processPid: 2, port: 1234 },
+			},
+			{ ...job, id: "completed-old", name: "Oldest completed" },
+		];
+		const original = structuredClone(jobs);
+		const list = vi.spyOn(manager, "list").mockResolvedValue(jobs);
+		view.handleInput("\x1b");
+		await vi.waitFor(() => expect(list).toHaveBeenCalled());
+		const rows = plain(view.render(120, 30)).slice(1, 6);
+		expect(rows.map((row) => row.slice(2, 10))).toEqual(["starting", "running-", "complete", "unreacha", "complete"]);
+		expect(rows[0]).toMatch(/^> .*Starting/);
+		expect(rows[2]).toContain("Newest completed");
+		expect(rows[4]).toContain("Oldest completed");
+		expect(jobs).toEqual(original);
+	});
+
+	it("colors running and starting rows with success while keeping the selected marker and name accented", async () => {
+		const { view, manager, job } = await fixture("");
+		vi.spyOn(manager, "list").mockResolvedValue([
+			{ ...job, id: "starting", name: "Starting", runtime: { state: "starting", startedAt: 0 } },
+			{
+				...job,
+				id: "running",
+				name: "Running",
+				runtime: { state: "running", startedAt: 0, workerPid: 1, processPid: 2, port: 1234 },
+			},
+			{
+				...job,
+				id: "unreachable",
+				name: "Unreachable",
+				runtime: { state: "unreachable", startedAt: 0, error: "No reply" },
+			},
+			job,
+		]);
+		view.handleInput("\x1b");
+		await vi.waitFor(() => expect(manager.list).toHaveBeenCalled());
+		for (const name of ["dark", "light"]) {
+			initTheme(name);
+			let rows = view.render(120, 30).slice(1, 5);
+			expect(rows[0]).toContain(theme.fg("accent", "> starting Starting  "));
+			expect(rows[0]).toContain(theme.fg("success", "starting"));
+			expect(rows[1]).toBe(theme.fg("success", stripVTControlCharacters(rows[1])));
+			expect(rows[2]).toBe(stripVTControlCharacters(rows[2]));
+			expect(rows[3]).toBe(stripVTControlCharacters(rows[3]));
+			view.handleInput("\x1b[B");
+			rows = view.render(120, 30).slice(1, 5);
+			expect(rows[0]).toBe(theme.fg("success", stripVTControlCharacters(rows[0])));
+			expect(rows[1]).toContain(theme.fg("accent", "> running Running  "));
+			expect(rows[1]).toContain(theme.fg("success", "running"));
+			view.handleInput("\x1b[A");
+		}
+	});
+
+	it("keeps the selected job when refreshed statuses reorder the list and management actions target its ID", async () => {
+		const { view, manager, job } = await fixture("");
+		const first: JobInfo = { ...job, id: "first", name: "First", runtime: { state: "starting", startedAt: 0 } };
+		const second: JobInfo = { ...job, id: "second", name: "Second", runtime: { state: "starting", startedAt: 0 } };
+		const list = vi.spyOn(manager, "list").mockResolvedValue([first, second]);
+		const watchers = new Map<string, Parameters<JobManager["watch"]>[1]>();
+		vi.mocked(manager.watch).mockImplementation((id, listener) => {
+			watchers.set(id, listener);
+			return () => watchers.delete(id);
+		});
+		view.handleInput("\x1b");
+		await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+		view.handleInput("\x1b[B");
+		expect(plain(view.render(120, 30))[2]).toMatch(/^> .*Second/);
+		list.mockResolvedValue([first, { ...second, runtime: job.runtime }]);
+		watchers.get(second.id)?.("runtime.json");
+		await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+		expect(plain(view.render(120, 30))[2]).toMatch(/^> .*Second/);
+		list.mockResolvedValue([{ ...first, runtime: job.runtime }, second]);
+		watchers.get(first.id)?.("runtime.json");
+		await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(3));
+		expect(plain(view.render(120, 30))[1]).toMatch(/^> .*Second/);
+		const stop = vi.spyOn(manager, "stop").mockResolvedValue(second);
+		view.handleInput("\x13");
+		await vi.waitFor(() => expect(stop).toHaveBeenCalledWith(second.id));
+	});
+});
+
 describe("background job view coloring", () => {
 	it("keeps emitted SGR colors and styles without rewriting raw logs or job metadata", async () => {
 		const raw = "\x1b[1;32mPASS\x1b[22;39m \x1b[38;5;201mindexed\x1b[0m\n\x1b[38;2;12;34;56mRGB\x1b[0m";

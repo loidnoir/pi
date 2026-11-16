@@ -3,12 +3,15 @@ import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import { type Component, TuiAltScreen, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import type { Static } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExtensionContext } from "../src/core/extensions/types.ts";
+import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
+import type { ExtensionContext, ExtensionUIContext } from "../src/core/extensions/types.ts";
 import { JobManager } from "../src/core/jobs/manager.ts";
 import type { JobInfo } from "../src/core/jobs/state.ts";
 import { JobsView } from "../src/core/jobs/view.ts";
+import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { localProof, receivePackets, sendPacket, verifyLocalProof } from "../src/core/local-channel.ts";
 import { openPane, type PaneControls, type PaneHandle, type PaneView } from "../src/core/panes/host.ts";
 import type { PaneCredentialsSchema, PaneOutput } from "../src/core/panes/protocol.ts";
@@ -94,6 +97,34 @@ async function fixture(create: (controls: PaneControls) => PaneView, minimized: 
 }
 
 describe("remote pane live frames", () => {
+	it("routes signed scroll lines separately from keyboard input", async () => {
+		const scrollBy = vi.fn();
+		const handleInput = vi.fn();
+		const test = await fixture(() => ({ render: () => ["live"], scrollBy, handleInput, dispose() {} }), false);
+		for (const lines of [-10000, -3, 0, 3, 10000]) sendPacket(test.viewer, { type: "scroll", lines });
+		sendPacket(test.viewer, { type: "input", data: "\x1b[5~" });
+		await vi.waitFor(() => expect(handleInput).toHaveBeenCalledWith("\x1b[5~"));
+		expect(scrollBy.mock.calls).toEqual([[-10000], [-3], [0], [3], [10000]]);
+		expect(handleInput).toHaveBeenCalledOnce();
+	});
+
+	it("ignores scroll for views without scrollBy and continues routing input", async () => {
+		const handleInput = vi.fn();
+		const test = await fixture(() => ({ render: () => ["live"], handleInput, dispose() {} }), false);
+		sendPacket(test.viewer, { type: "scroll", lines: -3 });
+		sendPacket(test.viewer, { type: "input", data: "x" });
+		await vi.waitFor(() => expect(handleInput).toHaveBeenCalledWith("x"));
+		expect(handleInput).toHaveBeenCalledOnce();
+	});
+
+	it.each([-10001, 10001, 1.5, "3"])("rejects invalid scroll lines %s", async (lines) => {
+		const scrollBy = vi.fn();
+		const test = await fixture(() => ({ render: () => ["live"], scrollBy, handleInput() {}, dispose() {} }), false);
+		sendPacket(test.viewer, { type: "scroll", lines });
+		await test.pane.closed;
+		expect(scrollBy).not.toHaveBeenCalled();
+	});
+
 	it("delivers an initially minimized job's async detail and own log without PaneHandle.show", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "pi-pane-jobs-test-"));
 		directories.push(directory);
@@ -157,5 +188,57 @@ describe("remote pane live frames", () => {
 		expect(dispose).toHaveBeenCalledOnce();
 		await test.pane.close();
 		expect(closeRexPane).toHaveBeenCalledWith(ownedPane, test.context.cwd);
+	});
+});
+
+describe("overlay pane input", () => {
+	it.each([true, false])("handles wheel input with scrollBy present: %s", async (scrollable) => {
+		const tui = new TuiAltScreen(new VirtualTerminal());
+		let component: Component | undefined;
+		const custom: ExtensionUIContext["custom"] = async <T>(factory: Parameters<ExtensionUIContext["custom"]>[0]) => {
+			const completion = Promise.withResolvers<T>();
+			component = await factory(tui, theme, new KeybindingsManager(), (value) => completion.resolve(value as T));
+			return completion.promise;
+		};
+		const context = {
+			cwd: "/tmp/pane-project",
+			mode: "tui",
+			ui: { theme, custom, getRexSettings: () => ({ enabled: false }), notify: vi.fn() },
+		} as unknown as ExtensionContext;
+		const scrollBy = vi.fn();
+		const handleInput = vi.fn();
+		const pane = await openPane(context, {
+			title: "Overlay test",
+			backend: "tui",
+			create: () => ({
+				render: () => ["live"],
+				scrollBy: scrollable ? scrollBy : undefined,
+				handleInput,
+				dispose() {},
+			}),
+		});
+		panes.push(pane);
+		const event: TuiMouseEvent = {
+			type: "wheel",
+			button: "none",
+			x: 1,
+			y: 1,
+			screenX: 1,
+			screenY: 1,
+			width: 80,
+			height: 24,
+			shift: false,
+			alt: false,
+			ctrl: false,
+		};
+		for (const wheelDelta of [-3, 3, undefined]) {
+			expect(component!.handleMouse?.({ ...event, wheelDelta })).toEqual(scrollable ? { handled: true } : undefined);
+		}
+		expect(scrollBy.mock.calls).toEqual(scrollable ? [[-3], [3], [0]] : []);
+		for (const type of ["press", "drag", "release", "click"] as const) {
+			expect(component!.handleMouse?.({ ...event, type })).toBeUndefined();
+		}
+		component!.handleInput?.("\x1b[6~");
+		expect(handleInput).toHaveBeenCalledExactlyOnceWith("\x1b[6~");
 	});
 });

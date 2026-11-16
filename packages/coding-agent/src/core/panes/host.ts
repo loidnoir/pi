@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { OverlayHandle } from "@earendil-works/pi-tui";
+import type { OverlayHandle, TuiMouseEvent } from "@earendil-works/pi-tui";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Compile } from "typebox/compile";
 import { getInternalInvocation } from "../../config.ts";
@@ -25,6 +25,8 @@ import { PaneInputSchema } from "./protocol.ts";
 export interface PaneView {
 	render(width: number, height: number): string[];
 	handleInput(data: string): void;
+	/** Scroll logical lines: negative up, positive down. */
+	scrollBy?(lines: number): void;
 	dispose(): void | Promise<void>;
 }
 export interface PaneControls {
@@ -142,6 +144,11 @@ function openOverlay(ctx: Pick<ExtensionContext, "ui" | "mode" | "cwd">, options
 				render: (width: number) =>
 					frame(ctx, options, view!, width, Math.max(4, Math.floor(tui.terminal.rows * 0.8))),
 				handleInput: (data: string) => view?.handleInput(data),
+				handleMouse: (event: TuiMouseEvent) => {
+					if (event.type !== "wheel" || !view?.scrollBy) return undefined;
+					view.scrollBy(event.wheelDelta ?? 0);
+					return { handled: true };
+				},
 				invalidate: () => {},
 			};
 		},
@@ -265,7 +272,8 @@ async function openRemotePane(
 				width = packet.columns;
 				height = packet.rows;
 				invalidate();
-			} else view?.handleInput(packet.data);
+			} else if (packet.type === "scroll") view?.scrollBy?.(packet.lines);
+			else view?.handleInput(packet.data);
 		});
 	});
 	server.maxConnections = 16;

@@ -15,6 +15,7 @@ export const PaneInputSchema = Type.Union([
 	Type.Object({ type: Type.Literal("hello"), proof: Type.String(), ...dimensions }),
 	Type.Object({ type: Type.Literal("resize"), ...dimensions }),
 	Type.Object({ type: Type.Literal("input"), data: Type.String({ maxLength: 65536 }) }),
+	Type.Object({ type: Type.Literal("scroll"), lines: Type.Integer({ minimum: -10000, maximum: 10000 }) }),
 ]);
 export type PaneInput = Static<typeof PaneInputSchema>;
 

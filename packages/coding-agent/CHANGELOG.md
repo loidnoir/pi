@@ -71,6 +71,7 @@
 
 ### Fixed
 
+- Fixed mouse-wheel scrolling in `/btw` side chats in fullscreen overlays and Rex panes, and Page Up/Down being intercepted by the Rex viewer instead of scrolling chat history.
 - Fixed prompt template arguments dropping apostrophes and merging words: an apostrophe inside a word, as in `doesn't`, no longer opens a quote; a quote with no closing match is kept as text; and `\"` inside `"..."` (or `\'` inside `'...'`) gives a literal quote ([#11861](https://github.com/earendil-works/pi/issues/11861))
 - Fixed the bash tool reporting only `Command timed out` when the command had already exited but a background process it started kept writing to its output until the timeout. The error now also reports the shell's exit code and when it exited ([#11613](https://github.com/earendil-works/pi/issues/11613))
 - Images in steering and follow-up messages, including `prompt()` while streaming, are now resized like images in idle prompts instead of being sent and saved at full size ([#11738](https://github.com/earendil-works/pi/issues/11738))

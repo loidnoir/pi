@@ -152,6 +152,49 @@ describe("native side chat presentation", () => {
 		await agent.waitForIdle();
 	});
 
+	it.each([false, true])("scrolls side-chat history with a pinned prompt (history-only: %s)", async (historyOnly) => {
+		const { agent, controls, firstMessage } = await fixture();
+		agent.state.messages = [
+			...agent.state.messages,
+			fauxAssistantMessage(
+				`\`\`\`text\n${Array.from({ length: 80 }, (_, index) => `SCROLL_ROW_${index}`).join("\n")}\n\`\`\``,
+			),
+		];
+		const view = new SideChatView(agent, controls, "", {
+			firstMessage,
+			continuationError: historyOnly ? "Original main session is missing" : undefined,
+		});
+		views.push(view);
+		if (!historyOnly) view.handleInput("Preserved draft");
+		const render = () => view.render(90, 24).map(stripTerminalSequences);
+		const firstRow = (lines: string[]) => Number(/SCROLL_ROW_(\d+)/.exec(lines.join("\n"))?.[1]);
+		const bottom = render();
+		expect(bottom.join("\n")).toContain("SCROLL_ROW_79");
+		vi.mocked(controls.invalidate).mockClear();
+		view.scrollBy(-6);
+		const scrolled = render();
+		expect(firstRow(scrolled)).toBe(firstRow(bottom) - 6);
+		const pinnedRows = historyOnly ? 1 : 7;
+		expect(scrolled.slice(-pinnedRows)).toEqual(bottom.slice(-pinnedRows));
+		expect(controls.invalidate).toHaveBeenCalled();
+		view.scrollBy(6);
+		expect(render()).toEqual(bottom);
+		view.scrollBy(-10000);
+		const top = render();
+		expect(top.join("\n")).toContain("SCROLL_ROW_0");
+		view.scrollBy(-10000);
+		expect(render()).toEqual(top);
+		view.scrollBy(6);
+		expect(render()).not.toEqual(top);
+		view.scrollBy(10000);
+		expect(render()).toEqual(bottom);
+		setKeybindings(new KeybindingsManager({ "tui.select.pageUp": "ctrl+u", "tui.select.pageDown": "ctrl+d" }));
+		view.handleInput("\x15");
+		expect(firstRow(render())).toBe(firstRow(bottom) - 10);
+		view.handleInput("\x04");
+		expect(render()).toEqual(bottom);
+	});
+
 	it("keeps model and effort selectors local, preserves drafts, and honors configured main shortcuts", async () => {
 		const { harness, agent, controls, firstMessage } = await fixture({
 			models: [

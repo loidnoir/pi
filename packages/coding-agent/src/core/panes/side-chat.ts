@@ -185,8 +185,8 @@ export class SideChatView implements PaneView, Focusable {
 		} else if (kb.matches(data, "app.thinking.toggle")) {
 			this.hideThinkingBlock = !this.hideThinkingBlock;
 			this.transcript.setHideThinkingBlock(this.hideThinkingBlock);
-		} else if (kb.matches(data, "tui.select.pageUp")) this.scroll += 10;
-		else if (kb.matches(data, "tui.select.pageDown")) this.scroll = Math.max(0, this.scroll - 10);
+		} else if (kb.matches(data, "tui.select.pageUp")) this.scrollBy(-10);
+		else if (kb.matches(data, "tui.select.pageDown")) this.scrollBy(10);
 		else if (this.options.continuationError) {
 			/* History-only views have no editable prompt or request controls. */
 		} else if (kb.matches(data, "app.model.select")) this.showModelSelector();
@@ -195,6 +195,13 @@ export class SideChatView implements PaneView, Focusable {
 		else if (kb.matches(data, "app.thinking.cycle")) this.cycleThinkingLevel();
 		else if (kb.matches(data, "app.exit") && !this.editor.getText()) this.controls.close();
 		else this.editor.handleInput(data);
+		this.controls.invalidate();
+	}
+
+	/** Scroll side-owned history without moving the prompt or changing its draft. */
+	scrollBy(lines: number): void {
+		if (this.selector) return;
+		this.scroll = Math.max(0, this.scroll - lines);
 		this.controls.invalidate();
 	}
 

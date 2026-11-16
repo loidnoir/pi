@@ -149,10 +149,20 @@ export class JobsView implements PaneView {
 			const start = Math.max(0, this.selected - available + 1);
 			for (let index = start; index < Math.min(this.jobs.length, start + available); index++) {
 				const entry = this.jobs[index];
-				const summary = `${entry.runtime.state} ${progress(entry, 10)} ${duration(entry)}`;
+				const suffix = ` ${progress(entry, 10)} ${duration(entry)}`;
+				const summary = `${entry.runtime.state}${suffix}`;
 				const name = singleLine(entry.name, Math.max(0, width - visibleWidth(summary) - 13));
-				const row = `${index === this.selected ? ">" : " "} ${entry.id.slice(0, 8)} ${name}  ${summary}`;
-				lines.push(index === this.selected ? theme.fg("accent", row) : row);
+				const prefix = `${index === this.selected ? ">" : " "} ${entry.id.slice(0, 8)} ${name}  `;
+				const row = `${prefix}${summary}`;
+				if (index === this.selected) {
+					lines.push(
+						isRunningJob(entry)
+							? theme.fg("accent", prefix) +
+									theme.fg("success", entry.runtime.state) +
+									theme.fg("accent", suffix)
+							: theme.fg("accent", row),
+					);
+				} else lines.push(isRunningJob(entry) ? theme.fg("success", row) : row);
 			}
 		}
 		if (this.error) lines.push(theme.fg("error", clean(this.error)));
@@ -284,8 +294,10 @@ export class JobsView implements PaneView {
 					}
 				});
 			if (!id) {
-				this.jobs = jobs;
-				this.selected = Math.max(0, Math.min(this.selected, jobs.length - 1));
+				const selectedId = this.jobs[this.selected]?.id;
+				this.jobs = jobs.toSorted((a, b) => Number(isRunningJob(b)) - Number(isRunningJob(a)));
+				const selected = this.jobs.findIndex((job) => job.id === selectedId);
+				this.selected = selected < 0 ? Math.max(0, Math.min(this.selected, jobs.length - 1)) : selected;
 			}
 			const wanted = new Set(
 				jobs
@@ -332,6 +344,10 @@ export class JobsView implements PaneView {
 
 function isActiveJob(job: JobInfo): boolean {
 	return job.runtime.state === "starting" || job.runtime.state === "running" || job.runtime.state === "unreachable";
+}
+
+function isRunningJob(job: JobInfo): boolean {
+	return job.runtime.state === "starting" || job.runtime.state === "running";
 }
 
 function clean(text: string): string {
