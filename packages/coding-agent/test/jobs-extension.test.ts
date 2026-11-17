@@ -77,6 +77,8 @@ describe("job pane completion cleanup", () => {
 		const context = {
 			mode: "tui",
 			cwd: "/tmp/project",
+			isIdle: () => true,
+			sessionManager: { getBranch: () => [{ type: "message", message: { role: "user", content: "Run checks" } }] },
 			ui: {
 				getRexSettings: () => ({ enabled: true, mode: "floating", minimizedJobs: true }),
 				setStatus: vi.fn(),
@@ -121,7 +123,7 @@ describe("job pane completion cleanup", () => {
 			expect(unrelated.close).not.toHaveBeenCalled();
 			expect(test.notices).toHaveBeenCalledWith(
 				expect.objectContaining({ customType: "background-job", content: expect.stringContaining(state) }),
-				{ triggerTurn: false },
+				{ deliverAs: "followUp", triggerTurn: true },
 			);
 			expect(test.notify).not.toHaveBeenCalled();
 		},

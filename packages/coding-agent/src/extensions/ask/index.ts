@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { parseQuestionForm } from "../../core/ask/form.ts";
 import { type FormResult, QuestionFormView } from "../../core/ask/view.ts";
 import { defineTool, type ExtensionAPI } from "../../core/extensions/types.ts";
+import { renderAskCall, renderAskResult } from "./render.ts";
 
 /** Registers the built-in ask tool, hidden from headless sessions and sub-agents. */
 export default function askExtension(pi: ExtensionAPI): void {
@@ -25,6 +26,8 @@ export default function askExtension(pi: ExtensionAPI): void {
 		}),
 		exposure: "hidden",
 		executionMode: "sequential",
+		renderCall: renderAskCall,
+		renderResult: renderAskResult,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			if (ctx.mode !== "tui" || !ctx.hasUI)
 				throw new Error(

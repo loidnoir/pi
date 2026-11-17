@@ -27,9 +27,12 @@ export const JobSpecSchema = Type.Object({
 		args: Type.Array(Type.String()),
 		commandTransport: Type.Optional(Type.Union([Type.Literal("argv"), Type.Literal("stdin")])),
 	}),
-	timeout: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 2147483.647 })),
+	timeout: Type.Optional(Type.Number({ minimum: 0, maximum: 2147483.647 })),
 });
 export type JobSpec = Static<typeof JobSpecSchema>;
+
+export const JOB_TERMINATION_UNCERTAIN_ERROR =
+	"Process-tree termination could not be confirmed; escaped subprocesses may still be running. Output capture has ended.";
 
 export const JobRuntimeSchema = Type.Union([
 	Type.Object({ state: Type.Literal("starting"), startedAt: Type.Number() }),

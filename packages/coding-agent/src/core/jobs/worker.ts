@@ -7,7 +7,13 @@ import { finished } from "node:stream/promises";
 import { Compile } from "typebox/compile";
 import { killProcessTree } from "../../utils/shell.ts";
 import { localProof, receivePackets, sendPacket, verifyLocalProof } from "../local-channel.ts";
-import { JobRequestSchema, type JobRuntime, readJobSpec, writeJobRecord } from "./state.ts";
+import {
+	JOB_TERMINATION_UNCERTAIN_ERROR,
+	JobRequestSchema,
+	type JobRuntime,
+	readJobSpec,
+	writeJobRecord,
+} from "./state.ts";
 
 const requestValidator = Compile(JobRequestSchema);
 
@@ -21,6 +27,8 @@ export async function runJobWorker(directory: string): Promise<void> {
 	let termination: "stopped" | "timed_out" | undefined;
 	let executionError: string | undefined;
 	let timeout: NodeJS.Timeout | undefined;
+	let cleanup: NodeJS.Timeout | undefined;
+	let terminationUncertain = false;
 	const server = createServer((socket) => {
 		socket.on("error", () => {});
 		socket.setTimeout(5000, () => socket.destroy());
@@ -57,9 +65,30 @@ export async function runJobWorker(directory: string): Promise<void> {
 		stdio: [stdinCommand ? "pipe" : "ignore", "pipe", "pipe"],
 		windowsHide: true,
 	});
+	const completion = Promise.withResolvers<number | null>();
+	let childState: "running" | "exited" | "closed" = "running";
+	child.once("exit", () => {
+		childState = "exited";
+	});
+	child.once("close", (code) => {
+		childState = "closed";
+		completion.resolve(code);
+	});
 	function stop(reason: "stopped" | "timed_out") {
-		termination ??= reason;
-		if (child.pid) killProcessTree(child.pid);
+		if (termination || childState === "closed") return;
+		termination = reason;
+		if (child.pid) {
+			if (childState === "exited") terminationUncertain = true;
+			else killProcessTree(child.pid);
+		}
+		cleanup = setTimeout(() => {
+			terminationUncertain = true;
+			child.stdout?.destroy();
+			child.stderr?.destroy();
+			child.stdin?.destroy();
+			child.unref();
+			completion.resolve(child.exitCode);
+		}, 1000);
 	}
 	server.on("error", (error) => {
 		executionError = `Job control server failed: ${error.message}`;
@@ -71,7 +100,7 @@ export async function runJobWorker(directory: string): Promise<void> {
 	process.on("SIGINT", onSignal);
 	output.on("error", (error) => {
 		executionError = `Cannot retain job output: ${error.message}`;
-		if (child.pid) killProcessTree(child.pid);
+		stop("stopped");
 	});
 	child.stdout?.pipe(output, { end: false });
 	child.stderr?.pipe(output, { end: false });
@@ -88,19 +117,23 @@ export async function runJobWorker(directory: string): Promise<void> {
 			port: address.port,
 		};
 		writeJobRecord(directory, "runtime.json", runtime);
-		if (spec.timeout !== undefined) timeout = setTimeout(() => stop("timed_out"), spec.timeout * 1000);
+		if (spec.timeout !== undefined && spec.timeout > 0)
+			timeout = setTimeout(() => stop("timed_out"), spec.timeout * 1000);
 	});
 	child.once("error", (error) => {
 		executionError = error.message;
 	});
 	try {
-		const exitCode = await new Promise<number | null>((resolve) => child.once("close", resolve));
+		const exitCode = await completion.promise;
+		clearTimeout(timeout);
+		clearTimeout(cleanup);
 		output.end();
 		try {
 			await finished(output);
 		} catch (error) {
 			executionError ??= error instanceof Error ? error.message : String(error);
 		}
+		if (terminationUncertain) executionError = JOB_TERMINATION_UNCERTAIN_ERROR;
 		runtime = {
 			state: executionError ? "failed" : (termination ?? (exitCode === 0 ? "completed" : "failed")),
 			startedAt: runtime.startedAt,
@@ -111,6 +144,7 @@ export async function runJobWorker(directory: string): Promise<void> {
 		writeJobRecord(directory, "runtime.json", runtime);
 	} finally {
 		clearTimeout(timeout);
+		clearTimeout(cleanup);
 		process.removeListener("SIGTERM", onSignal);
 		process.removeListener("SIGHUP", onSignal);
 		process.removeListener("SIGINT", onSignal);

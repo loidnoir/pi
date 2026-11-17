@@ -90,7 +90,100 @@ async function interruptedParallelRun() {
 	return { ...reopened, effects, checkpoint, path, directory };
 }
 
+async function interruptedIdleSession() {
+	const { harness, directory, sessionManager } = await fixture();
+	harness.setResponses([fauxAssistantMessage("Waiting for background work")]);
+	await harness.session.prompt("Wait for the background evidence");
+	await harness.session.recovery.pause();
+	harness.session.dispose();
+	const reopened = await fixture({
+		sessionManager: SessionManager.open(sessionManager.getSessionFile()!),
+		agentDir: directory,
+	});
+	return { ...reopened, directory };
+}
+
 describe("session execution recovery", () => {
+	it.each(["followUp", "steer"] as const)(
+		"persists %s completion intent for an idle interrupted parent and continues only after approval",
+		async (deliverAs) => {
+			const { harness, directory, sessionManager } = await interruptedIdleSession();
+			expect(harness.session.recovery.info().main).toBe(false);
+			await harness.session.sendCustomMessage(
+				{ customType: "completed-work", content: "IDLE_COMPLETION_EVIDENCE", display: true },
+				{ deliverAs, triggerTurn: true },
+			);
+			expect(harness.faux.state.callCount).toBe(0);
+			expect(harness.session.isStreaming).toBe(false);
+			const saved = JSON.parse(readFileSync(harness.session.recovery.checkpointPath!, "utf8")) as {
+				pendingMain: boolean;
+				inputs: { mode: string }[];
+			};
+			expect(saved.pendingMain).toBe(false);
+			expect(saved.inputs.map((input) => input.mode)).toEqual([deliverAs]);
+			harness.session.dispose();
+			const reopened = await fixture({
+				sessionManager: SessionManager.open(sessionManager.getSessionFile()!),
+				agentDir: directory,
+			});
+			const requests: TranscriptContext[] = [];
+			reopened.harness.setResponses(
+				Array.from({ length: 2 }, () => (context: TranscriptContext) => {
+					requests.push(context);
+					return fauxAssistantMessage("Approved completion consumed");
+				}),
+			);
+			await reopened.harness.session.recovery.recover();
+			expect(reopened.harness.faux.state.callCount).toBe(deliverAs === "steer" ? 1 : 2);
+			expect(JSON.stringify(requests.at(-1))).toContain("IDLE_COMPLETION_EVIDENCE");
+			expect(
+				reopened.harness.session.messages.filter(
+					(message) => message.role === "custom" && message.customType === "completed-work",
+				),
+			).toHaveLength(1);
+			expect(reopened.harness.session.recovery.info().queuedInputs).toBe(0);
+		},
+	);
+
+	it("keeps a context-only completion from waking an idle parent after recovery approval", async () => {
+		const { harness } = await interruptedIdleSession();
+		await harness.session.sendCustomMessage(
+			{ customType: "completion-context", content: "CONTEXT_ONLY_EVIDENCE", display: true },
+			{ deliverAs: "followUp", triggerTurn: false },
+		);
+		expect(harness.session.recovery.info().main).toBe(false);
+		expect(harness.session.recovery.info().queuedInputs).toBe(1);
+		await harness.session.recovery.recover();
+		expect(harness.faux.state.callCount).toBe(0);
+		expect(
+			harness.session.messages.filter(
+				(message) => message.role === "custom" && message.customType === "completion-context",
+			),
+		).toHaveLength(1);
+	});
+
+	it("discards queued completion intent without waking the parent or leaking it into a new task", async () => {
+		const { harness } = await interruptedIdleSession();
+		await harness.session.sendCustomMessage(
+			{ customType: "discarded-completion", content: "ABANDONED_COMPLETION_EVIDENCE", display: true },
+			{ deliverAs: "followUp", triggerTurn: true },
+		);
+		await harness.session.recovery.discard();
+		expect(harness.faux.state.callCount).toBe(0);
+		expect(harness.session.agent.hasQueuedMessages()).toBe(false);
+		expect(harness.session.recovery.info().queuedInputs).toBe(0);
+		let context: TranscriptContext | undefined;
+		harness.setResponses([
+			(value) => {
+				context = value;
+				return fauxAssistantMessage("New task handled");
+			},
+		]);
+		await harness.session.prompt("Start a different task");
+		expect(JSON.stringify(context)).not.toContain("ABANDONED_COMPLETION_EVIDENCE");
+		expect(getMessageText(harness.session.messages.at(-1))).toBe("New task handled");
+	});
+
 	it("finishes the current response, parks its tool calls, and continues without another prompt", async () => {
 		const started = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();

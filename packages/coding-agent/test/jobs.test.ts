@@ -4,9 +4,10 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { JobManager } from "../src/core/jobs/manager.ts";
-import { readJobRuntime, writeJobRecord } from "../src/core/jobs/state.ts";
+import { readJobRuntime, readJobSpec, writeJobRecord } from "../src/core/jobs/state.ts";
+import { createBashTool, createLocalShellOperations } from "../src/core/tools/bash.ts";
 
 const managers: JobManager[] = [];
 const shell = { shell: process.execPath, args: ["--eval"] };
@@ -17,6 +18,7 @@ function catalog(): JobManager {
 }
 
 afterEach(async () => {
+	vi.restoreAllMocks();
 	for (const manager of managers.splice(0)) {
 		for (const job of await manager.list()) {
 			if (job.runtime.state === "running") await manager.stop(job.id);
@@ -59,10 +61,12 @@ describe("persistent jobs", () => {
 		const first = await manager.start("console.log('original'); setInterval(() => {}, 1000)", manager.directory, {
 			shell,
 		});
+		expect(readJobSpec(join(manager.directory, first.id)).timeout).toBe(5400);
 		expect((await manager.rename(first.id, "renamed")).name).toBe("renamed");
 		expect((await manager.stop(first.id)).runtime.state).toBe("stopped");
 		const next = await manager.restart(first.id, "console.log('replacement')");
 		expect(next.id).not.toBe(first.id);
+		expect(readJobSpec(join(manager.directory, next.id)).timeout).toBe(5400);
 		await expect.poll(async () => (await manager.inspect(next.id)).runtime.state).toBe("completed");
 		expect(manager.logs(next.id).text).toBe("replacement\n");
 		expect((await manager.inspect(first.id)).runtime.state).toBe("stopped");
@@ -108,10 +112,49 @@ describe("persistent jobs", () => {
 		expect(next).toMatchObject({ name: "Release build", naming: { status: "explicit" } });
 	});
 
+	it.each([0, 7200])("retains an explicit timeout of %s seconds across restart", async (timeout) => {
+		const manager = catalog();
+		const command = "setTimeout(() => console.log('ready'), 100); setInterval(() => {}, 1000)";
+		const job = await manager.start(command, manager.directory, { shell, timeout });
+		expect(readJobSpec(join(manager.directory, job.id)).timeout).toBe(timeout);
+		await expect.poll(() => manager.logs(job.id).text).toContain("ready");
+		expect((await manager.inspect(job.id)).runtime.state).toBe("running");
+		const next = await manager.restart(job.id);
+		expect(readJobSpec(join(manager.directory, next.id)).timeout).toBe(timeout);
+		await expect.poll(() => manager.logs(next.id).text).toContain("ready");
+		expect((await manager.inspect(next.id)).runtime.state).toBe("running");
+	});
+
 	it("enforces a job timeout independently of the starter", async () => {
 		const manager = catalog();
 		const job = await manager.start("setInterval(() => {}, 1000)", manager.directory, { shell, timeout: 0.05 });
 		await expect.poll(async () => (await manager.inspect(job.id)).runtime.state).toBe("timed_out");
+		const next = await manager.restart(job.id);
+		expect(readJobSpec(join(manager.directory, next.id)).timeout).toBe(0.05);
+		await expect.poll(async () => (await manager.inspect(next.id)).runtime.state).toBe("timed_out");
+	});
+
+	it.each([undefined, 0, 7200])("accepts async bash timeout %s through the job manager", async (timeout) => {
+		const manager = catalog();
+		const start = manager.start.bind(manager);
+		vi.spyOn(JobManager.prototype, "start").mockImplementation(start);
+		const bash = createBashTool(manager.directory);
+		const result = await bash.execute("background-timeout", { command: "echo ready", async: true, timeout });
+		const id = result.details?.jobId;
+		expect(id).toBeDefined();
+		expect(readJobSpec(join(manager.directory, id!)).timeout).toBe(timeout ?? 5400);
+		await expect.poll(async () => (await manager.inspect(id!)).runtime.state).toBe("completed");
+	});
+
+	it("keeps synchronous bash timeout omitted and rejects zero", async () => {
+		const exec = vi.fn(async () => ({ exitCode: 0 }));
+		const bash = createBashTool(process.cwd(), { operations: { exec } });
+		await bash.execute("synchronous-timeout", { command: "echo ready" });
+		expect(exec).toHaveBeenCalledWith("echo ready", process.cwd(), expect.objectContaining({ timeout: undefined }));
+		const operations = createLocalShellOperations("bash", () => shell);
+		await expect(operations.exec("", process.cwd(), { timeout: 0, onData: () => {} })).rejects.toThrow(
+			"Invalid timeout",
+		);
 	});
 
 	it("distinguishes command failure from launch acknowledgment and keeps its output", async () => {
@@ -172,6 +215,24 @@ describe("persistent jobs", () => {
 		}
 		expect((await manager.inspect(job.id)).runtime.state).toBe("running");
 	});
+
+	it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, 2147483.648])(
+		"rejects invalid SDK timeout %s without poisoning the catalog",
+		async (timeout) => {
+			const manager = catalog();
+			try {
+				await expect(
+					manager.start("console.log('invalid')", manager.directory, { shell, timeout }),
+				).rejects.toThrow();
+				expect(await manager.list()).toEqual([]);
+				const job = await manager.start("console.log('valid')", manager.directory, { shell });
+				await expect.poll(async () => (await manager.inspect(job.id)).runtime.state).toBe("completed");
+				expect(manager.logs(job.id).text).toBe("valid\n");
+			} finally {
+				rmSync(manager.directory, { recursive: true, force: true });
+			}
+		},
+	);
 
 	it("rejects oversized metadata before publishing an unusable catalog entry", async () => {
 		const manager = catalog();

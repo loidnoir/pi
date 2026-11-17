@@ -11,6 +11,7 @@ import { generateDisplayName } from "../../core/naming.ts";
 import { parsePaneCommand } from "../../core/panes/command.ts";
 import { openPane, type PaneHandle, type PaneOptions } from "../../core/panes/host.ts";
 import { getRexLocation } from "../../core/rex.ts";
+import { canContinueOnCompletion } from "../completion.ts";
 
 const detailsValidator = Compile(
 	Type.Object({ jobId: Type.String({ pattern: "^[a-f0-9-]{36}$" }), jobState: Type.Optional(Type.String()) }),
@@ -234,7 +235,7 @@ export function createJobsExtension(manager = new JobManager()): ExtensionFactor
 							content: `Background job ${job.id} (${JSON.stringify(job.name)}): ${job.runtime.state}. Full output: ${job.logPath}`,
 							details: { jobId: id, state: job.runtime.state },
 						},
-						{ triggerTurn: false },
+						{ deliverAs: "followUp", triggerTurn: canContinueOnCompletion(ctx) },
 					);
 				} catch (error) {
 					if (!active) return;

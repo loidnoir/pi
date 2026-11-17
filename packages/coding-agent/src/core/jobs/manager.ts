@@ -21,6 +21,7 @@ import { getAgentDir, getInternalInvocation } from "../../config.ts";
 import { getShellConfig, getShellEnv, type ShellConfig } from "../../utils/shell.ts";
 import { localProof, receivePackets, sendPacket, verifyLocalProof } from "../local-channel.ts";
 import {
+	JOB_TERMINATION_UNCERTAIN_ERROR,
 	type JobInfo,
 	JobReplySchema,
 	type JobRuntime,
@@ -64,7 +65,7 @@ export class JobManager {
 			createdAt: Date.now(),
 			token: randomBytes(32).toString("hex"),
 			shell: options.shell ?? getShellConfig(),
-			...(options.timeout !== undefined ? { timeout: options.timeout } : {}),
+			timeout: options.timeout ?? 5400,
 			...(options.sessionId ? { sessionId: options.sessionId } : {}),
 		};
 		const invocation = getInternalInvocation("job-worker");
@@ -73,6 +74,7 @@ export class JobManager {
 		mkdirSync(staging, { mode: 0o700 });
 		try {
 			writeJobRecord(staging, "spec.json", spec);
+			readJobSpec(staging);
 			writeJobRecord(staging, "runtime.json", { state: "starting", startedAt: spec.createdAt } satisfies JobRuntime);
 			closeSync(openSync(join(staging, "output.log"), "wx", 0o600));
 			closeSync(openSync(join(staging, "worker.log"), "wx", 0o600));
@@ -273,7 +275,7 @@ export class JobManager {
 	/** Stop a live job and start a new job ID, optionally with a replacement command. */
 	async restart(id: string, command?: string): Promise<JobInfo> {
 		const spec = readJobSpec(this.jobDirectory(id));
-		await this.stop(id);
+		requireConfirmedTermination(await this.stop(id));
 		return this.start(command ?? spec.command, spec.cwd, {
 			...(!spec.naming || spec.naming.status === "explicit" ? { name: spec.name } : {}),
 			shell: spec.shell,
@@ -285,6 +287,7 @@ export class JobManager {
 	/** Remove a finished or lost job and its logs; active or uncontactable jobs must be stopped first. */
 	async remove(id: string): Promise<void> {
 		const job = await this.inspect(id);
+		requireConfirmedTermination(job);
 		if (["starting", "running", "unreachable"].includes(job.runtime.state))
 			throw new Error("Stop the job before deleting it");
 		rmSync(this.jobDirectory(id), { recursive: true });
@@ -344,6 +347,11 @@ export class JobManager {
 		if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid job ID");
 		return join(this.directory, id);
 	}
+}
+
+function requireConfirmedTermination(job: JobInfo): void {
+	if (job.runtime.state === "failed" && job.runtime.error === JOB_TERMINATION_UNCERTAIN_ERROR)
+		throw new Error(`${JOB_TERMINATION_UNCERTAIN_ERROR} Restart and delete are blocked.`);
 }
 
 function request(spec: JobSpec, port: number, action: "status" | "stop"): Promise<JobRuntime> {

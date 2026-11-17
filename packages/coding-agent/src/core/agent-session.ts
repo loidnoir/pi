@@ -2592,7 +2592,10 @@ export class AgentSession {
 		if (options?.deliverAs === "nextTurn") {
 			this.recovery.queue("nextTurn", appMessage);
 			this._pendingNextTurnMessages.push(appMessage);
-		} else if (this.isStreaming && options?.triggerTurn !== false) {
+		} else if (
+			(this.isStreaming || (options?.triggerTurn && this.recovery.needsRecovery)) &&
+			options?.triggerTurn !== false
+		) {
 			if (options?.deliverAs === "followUp") {
 				this.recovery.queue("followUp", appMessage);
 				this.agent.followUp(appMessage);
@@ -2601,6 +2604,11 @@ export class AgentSession {
 				this.agent.steer(appMessage);
 			}
 		} else if (options?.triggerTurn) {
+			if (this.isCompacting) {
+				await this.waitForIdle();
+				await this.sendCustomMessage(message, options);
+				return;
+			}
 			if (this._isEmittingAgentSettled) {
 				this._deferredSettledActions.push(async () => await this.sendCustomMessage(message, options));
 				return;
@@ -3995,7 +4003,7 @@ export class AgentSession {
 			{
 				getModel: () => this.model,
 				getScopedModels: () => this._scopedModels,
-				isIdle: () => this.isIdle,
+				isIdle: () => this.isIdle && this._promptPreflightCount === 0,
 				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
 				getSignal: () => this.agent.signal,
 				abort: () => {

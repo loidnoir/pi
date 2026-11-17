@@ -18,6 +18,7 @@ import {
 } from "../../core/subagents/tool.ts";
 import { SubagentsView } from "../../core/subagents/view.ts";
 import { truncateHead } from "../../core/tools/truncate.ts";
+import { canContinueOnCompletion } from "../completion.ts";
 
 const noticeValidator = Compile(Type.Object({ id: SubagentIdSchema, run: Type.Integer({ minimum: 1 }) }));
 
@@ -30,12 +31,13 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 		let pane: PaneHandle | undefined;
 		let opening: Promise<PaneHandle> | undefined;
 		let scheduled = false;
+		let deliveryTimer: NodeJS.Timeout | undefined;
 		let unregisterRecovery: (() => void) | undefined;
 		let unregisterActivity: (() => void) | undefined;
 		let unsubscribeStatus: (() => void) | undefined;
 		const delivered = new Set<string>();
 		const observing = new Set<string>();
-		const pending = new Map<string, SubagentResult>();
+		const pending = new Map<string, { result: SubagentResult; triggerTurn: boolean }>();
 
 		function getManager(ctx: ExtensionContext): SubagentManager {
 			context = ctx;
@@ -90,12 +92,13 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 					},
 				});
 				for (const entry of ctx.sessionManager.getEntries()) {
-					if (
-						entry.type === "custom_message" &&
-						entry.customType === "subagent-result" &&
-						noticeValidator.Check(entry.details)
-					)
-						delivered.add(`${entry.details.id}:${entry.details.run}`);
+					const notice =
+						entry.type === "custom_message" && entry.customType === "subagent-result"
+							? entry.details
+							: entry.type === "custom" && entry.customType === "pi.subagent-result-delivery"
+								? entry.data
+								: undefined;
+					if (noticeValidator.Check(notice)) delivered.add(`${notice.id}:${notice.run}`);
 				}
 			}
 			return manager;
@@ -104,14 +107,29 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 		function scheduleDelivery() {
 			if (scheduled || lifetime.signal.aborted) return;
 			scheduled = true;
+			const signal = lifetime.signal;
 			queueMicrotask(() => {
 				scheduled = false;
-				if (!context || lifetime.signal.aborted) return;
+				if (!context || signal.aborted || pending.size === 0) return;
 				const branch = new Set(context.sessionManager.getBranch().map((entry) => entry.id));
 				const ready = [...pending].filter(
-					([, result]) => result.agent.originEntryId === null || branch.has(result.agent.originEntryId),
+					([, { result }]) => result.agent.originEntryId === null || branch.has(result.agent.originEntryId),
 				);
-				for (const [key, result] of ready) {
+				if (ready.length === 0) return;
+				if (!context.isIdle()) {
+					for (const [, notice] of ready) notice.triggerTurn = false;
+					deliveryTimer ??= setTimeout(() => {
+						deliveryTimer = undefined;
+						scheduleDelivery();
+					}, 100);
+					deliveryTimer.unref();
+					return;
+				}
+				if (deliveryTimer) {
+					clearTimeout(deliveryTimer);
+					deliveryTimer = undefined;
+				}
+				for (const [key, { result, triggerTurn }] of ready) {
 					if (delivered.has(key)) {
 						pending.delete(key);
 						continue;
@@ -121,6 +139,9 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 						const notice = truncateHead(
 							`Sub-agent ${agent.id} (${agent.role}): ${agent.label}\nRun ${agent.run}: ${agent.status}.\nChild usage: input ${agent.usage.input}, output ${agent.usage.output}.\n${agent.historyPath ? `Independent history: ${agent.historyPath}\n` : ""}${agent.error ? `Error: ${agent.error}\n` : ""}\n${result.text}${result.truncated ? "\n[Result truncated; use paged subagent history for the full original response.]" : ""}`,
 						);
+						const continueParent = triggerTurn && canContinueOnCompletion(context);
+						const mayQueue =
+							continueParent || !context.isIdle() || getSessionRecovery(context.sessionManager).needsRecovery;
 						pi.sendMessage(
 							{
 								customType: "subagent-result",
@@ -132,8 +153,9 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 										: ""),
 								details: { id: agent.id, run: agent.run, status: agent.status, usage: agent.usage },
 							},
-							{ deliverAs: "followUp", triggerTurn: false },
+							{ deliverAs: "followUp", triggerTurn: continueParent },
 						);
+						if (mayQueue) pi.appendEntry("pi.subagent-result-delivery", { id: agent.id, run: agent.run });
 						delivered.add(key);
 						pending.delete(key);
 					} catch (error) {
@@ -143,11 +165,11 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 			});
 		}
 
-		function observe(id: string, ctx: ExtensionContext): void {
+		function observe(id: string, ctx: ExtensionContext, source: "live" | "replay" = "live"): void {
 			const owner = getManager(ctx);
 			const info = owner.inspect(id);
 			const key = `${id}:${info.run}`;
-			if (observing.has(key) || delivered.has(key)) return;
+			if (observing.has(key) || pending.has(key) || delivered.has(key)) return;
 			observing.add(key);
 			const signal = lifetime.signal;
 			void owner
@@ -155,7 +177,10 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 				.then(
 					(result) => {
 						if (signal.aborted || result.agent.status === "paused") return;
-						pending.set(key, result);
+						pending.set(key, {
+							result,
+							triggerTurn: source === "live" && canContinueOnCompletion(context ?? ctx),
+						});
 						scheduleDelivery();
 					},
 					(error: unknown) => {
@@ -258,15 +283,18 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 					agent.async &&
 					(agent.status === "completed" || agent.status === "failed" || agent.status === "stopped")
 				)
-					observe(agent.id, ctx);
+					observe(agent.id, ctx, "replay");
 			}
 		});
+		pi.on("agent_settled", () => scheduleDelivery());
 		pi.on("session_tree", (_event, ctx) => {
 			context = ctx;
 			scheduleDelivery();
 		});
 		pi.on("session_shutdown", async () => {
 			lifetime.abort();
+			if (deliveryTimer) clearTimeout(deliveryTimer);
+			deliveryTimer = undefined;
 			unsubscribeStatus?.();
 			unsubscribeStatus = undefined;
 			try {

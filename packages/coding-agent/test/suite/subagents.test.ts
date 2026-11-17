@@ -17,14 +17,16 @@ import { createHarness, getMessageText, getToolResult, type Harness, type Harnes
 const fixtures: Array<{ directory: string; harness: Harness; reader: SubagentManager }> = [];
 const factoryFailures: unknown[] = [];
 
-async function fixture(options: HarnessOptions = {}) {
-	const directory = mkdtempSync(join(tmpdir(), "pi-native-agents-"));
-	const parent = SessionManager.create(directory, join(directory, "sessions"));
-	parent.appendMessage({ role: "user", content: "PARENT_PRIVATE_CONTEXT", timestamp: 1 });
-	parent.appendMessage(fauxAssistantMessage("Parent setup response"));
+async function fixture(options: HarnessOptions = {}, directory = mkdtempSync(join(tmpdir(), "pi-native-agents-"))) {
+	const parent = options.sessionManager ?? SessionManager.create(directory, join(directory, "sessions"));
+	if (!options.sessionManager) {
+		parent.appendMessage({ role: "user", content: "PARENT_PRIVATE_CONTEXT", timestamp: 1 });
+		parent.appendMessage(fauxAssistantMessage("Parent setup response"));
+	}
 	const harness = await createHarness({
 		...options,
 		sessionManager: parent,
+		agentDir: options.agentDir ?? directory,
 		settings: { compaction: { enabled: false }, retry: { enabled: false }, cacheWarming: "off", ...options.settings },
 		extensionFactories: [createSubagentExtension(directory), ...(options.extensionFactories ?? [])],
 	});
@@ -247,7 +249,7 @@ describe("native sub-agent controls", () => {
 	});
 
 	it.each(["completed", "failed"] as const)(
-		"delivers one bounded async %s result without starting an idle parent request",
+		"continues the idle parent with one bounded async %s result",
 		async (outcome) => {
 			const { parent, harness, reader } = await fixture();
 			const started = Promise.withResolvers<void>();
@@ -262,11 +264,14 @@ describe("native sub-agent controls", () => {
 					delivered.resolve();
 			});
 			let mainCalls = 0;
-			queueFactory(harness, async (_context, options) => {
-				if (options?.sessionId === parent.getSessionId())
-					return ++mainCalls === 1
-						? delegate({ task: "Produce the asynchronous finding", async: true })
-						: fauxAssistantMessage("The background child is still running");
+			queueFactory(harness, async (context, options) => {
+				if (options?.sessionId === parent.getSessionId()) {
+					if (++mainCalls === 1) return delegate({ task: "Produce the asynchronous finding", async: true });
+					if (mainCalls === 2) return fauxAssistantMessage("The background child is still running");
+					expect(mainCalls).toBe(3);
+					expect(JSON.stringify(context)).toContain("FINAL_ASYNC_FINDING");
+					return fauxAssistantMessage("Parent consumed the asynchronous finding");
+				}
 				started.resolve();
 				options?.signal?.addEventListener("abort", () => release.resolve(), { once: true });
 				await release.promise;
@@ -284,7 +289,18 @@ describe("native sub-agent controls", () => {
 			release.resolve();
 			await delivered.promise;
 			unsubscribe();
-			expect(mainCalls).toBe(2);
+			await vi.waitFor(() => {
+				expect(getMessageText(harness.session.messages.at(-1))).toBe("Parent consumed the asynchronous finding");
+				expect(harness.session.isStreaming).toBe(false);
+			});
+			expect(mainCalls).toBe(3);
+			await harness.session.extensionRunner?.emit({
+				type: "session_tree",
+				oldLeafId: null,
+				newLeafId: parent.getLeafId()!,
+			});
+			await new Promise((resolve) => setImmediate(resolve));
+			expect(mainCalls).toBe(3);
 			const notices = harness.session.messages.filter(
 				(message) => message.role === "custom" && message.customType === "subagent-result",
 			);
@@ -299,9 +315,306 @@ describe("native sub-agent controls", () => {
 		},
 	);
 
-	it("holds async results off unrelated branches and delivers them after returning to the launch branch", async () => {
+	it("records a child result completed during current work without continuing the settled parent", async () => {
+		const { parent, harness, reader } = await fixture();
+		const currentWork = Promise.withResolvers<void>();
+		const finishCurrentWork = Promise.withResolvers<void>();
+		const releaseChild = Promise.withResolvers<void>();
+		let mainCalls = 0;
+		queueFactory(harness, async (_context, options) => {
+			if (options?.sessionId === parent.getSessionId()) {
+				if (++mainCalls === 1) return delegate({ task: "Finish while the parent works", async: true });
+				if (mainCalls === 2) {
+					currentWork.resolve();
+					options?.signal?.addEventListener("abort", () => finishCurrentWork.resolve(), { once: true });
+					await finishCurrentWork.promise;
+				}
+				return fauxAssistantMessage("Parent current work completed");
+			}
+			options?.signal?.addEventListener("abort", () => releaseChild.resolve(), { once: true });
+			await releaseChild.promise;
+			return fauxAssistantMessage("RESULT_BEFORE_PRINT_SHUTDOWN");
+		});
+		const running = harness.session.prompt("Delegate while completing the current parent work");
+		await currentWork.promise;
+		releaseChild.resolve();
+		try {
+			await vi.waitFor(() => expect(reader.list()[0].status).toBe("completed"));
+			await new Promise((resolve) => setImmediate(resolve));
+			expect(mainCalls).toBe(2);
+		} finally {
+			finishCurrentWork.resolve();
+		}
+		await running;
+		await harness.session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+		expect(mainCalls).toBe(2);
+		expect(JSON.stringify(harness.session.messages)).toContain("RESULT_BEFORE_PRINT_SHUTDOWN");
+		expect(
+			harness.session.messages.filter(
+				(message) => message.role === "custom" && message.customType === "subagent-result",
+			),
+		).toHaveLength(1);
+	});
+
+	it("waits for parent continue when an async child completes during pause", async () => {
+		const { parent, harness, reader } = await fixture();
+		const started = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		let mainCalls = 0;
+		queueFactory(harness, async (context, options) => {
+			if (options?.sessionId === parent.getSessionId()) {
+				if (++mainCalls === 1) return delegate({ task: "Complete during parent pause", async: true });
+				if (mainCalls === 2) return fauxAssistantMessage("Parent awaiting child");
+				expect(JSON.stringify(context)).toContain("PAUSED_CHILD_RESULT");
+				return fauxAssistantMessage("Parent consumed the result after continue");
+			}
+			started.resolve();
+			options?.signal?.addEventListener("abort", () => release.resolve(), { once: true });
+			await release.promise;
+			return fauxAssistantMessage("PAUSED_CHILD_RESULT");
+		});
+		const running = harness.session.prompt("Launch a child then pause");
+		await started.promise;
+		await running;
+		const paused = harness.session.recovery.pause();
+		release.resolve();
+		await paused;
+		await vi.waitFor(() => {
+			expect(reader.list()[0].status).toBe("completed");
+			expect(harness.session.isStreaming).toBe(true);
+		});
+		expect(mainCalls).toBe(2);
+		expect(harness.session.recovery.isPaused).toBe(true);
+		harness.session.recovery.resume();
+		await vi.waitFor(() => {
+			expect(getMessageText(harness.session.messages.at(-1))).toBe("Parent consumed the result after continue");
+			expect(harness.session.isStreaming).toBe(false);
+		});
+		expect(mainCalls).toBe(3);
+	});
+
+	it("retains an async result while another child needs recovery approval", async () => {
+		const { parent, harness } = await fixture();
+		const started = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		let mainCalls = 0;
+		queueFactory(harness, async (context, options) => {
+			if (options?.sessionId === parent.getSessionId()) {
+				if (++mainCalls === 1) return delegate({ task: "Return late recovery evidence", async: true });
+				if (mainCalls === 2) return fauxAssistantMessage("Parent waiting for child evidence");
+				if (mainCalls === 3) return fauxAssistantMessage("Parent recovery approved");
+				expect(mainCalls).toBe(4);
+				expect(JSON.stringify(context)).toContain("LATE_RECOVERY_EVIDENCE");
+				return fauxAssistantMessage("Parent consumed the approved child result");
+			}
+			started.resolve();
+			options?.signal?.addEventListener("abort", () => release.resolve(), { once: true });
+			await release.promise;
+			return fauxAssistantMessage("LATE_RECOVERY_EVIDENCE");
+		});
+		const running = harness.session.prompt("Launch a child before recovery is needed");
+		await started.promise;
+		await running;
+		expect(harness.session.recovery.info().main).toBe(false);
+		let interrupted = true;
+		const unregister = harness.session.recovery.registerPeer({
+			pause: async () => {},
+			resume: () => {},
+			pending: () => (interrupted ? [{ id: "interrupted-child", label: "Interrupted child" }] : []),
+			recover: async () => {
+				interrupted = false;
+			},
+			discard: async () => {
+				interrupted = false;
+			},
+		});
+		const errors: unknown[] = [];
+		const unsubscribe = harness.session.extensionRunner?.onError((error) => errors.push(error));
+		release.resolve();
+		await vi.waitFor(() => expect(harness.session.recovery.info().queuedInputs).toBe(1));
+		expect(mainCalls).toBe(2);
+		expect(harness.session.recovery.needsRecovery).toBe(true);
+		await harness.session.recovery.recover();
+		unregister();
+		unsubscribe?.();
+		expect(errors).toEqual([]);
+		expect(mainCalls).toBe(4);
+		expect(getMessageText(harness.session.messages.at(-1))).toBe("Parent consumed the approved child result");
+		expect(
+			harness.session.messages.filter(
+				(message) => message.role === "custom" && message.customType === "subagent-result",
+			),
+		).toHaveLength(1);
+	});
+
+	it("does not enqueue a second notice after reopening with a child result awaiting recovery approval", async () => {
+		const { parent, harness, directory } = await fixture();
+		const started = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		let mainCalls = 0;
+		queueFactory(harness, async (_context, options) => {
+			if (options?.sessionId === parent.getSessionId())
+				return ++mainCalls === 1
+					? delegate({ task: "Return evidence before reopening", async: true })
+					: fauxAssistantMessage("Parent awaiting evidence");
+			started.resolve();
+			options?.signal?.addEventListener("abort", () => release.resolve(), { once: true });
+			await release.promise;
+			return fauxAssistantMessage("RESULT_RETAINED_ACROSS_REOPEN");
+		});
+		const running = harness.session.prompt("Launch a child before reopening");
+		await started.promise;
+		await running;
+		harness.session.recovery.registerPeer({
+			pause: async () => {},
+			resume: () => {},
+			pending: () => [{ id: "interrupted-child", label: "Interrupted child" }],
+			recover: async () => {},
+			discard: async () => {},
+		});
+		release.resolve();
+		await vi.waitFor(() => expect(harness.session.recovery.info().queuedInputs).toBe(1));
+		await harness.session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+		harness.session.dispose();
+		const reopened = await fixture({ sessionManager: SessionManager.open(parent.getSessionFile()!) }, directory);
+		await reopened.harness.session.bindExtensions({ mode: "json" });
+		await new Promise((resolve) => setImmediate(resolve));
+		expect(reopened.harness.session.recovery.info().queuedInputs).toBe(1);
+		reopened.harness.setResponses(
+			Array.from({ length: 3 }, () => fauxAssistantMessage("Parent consumed the recovered child result")),
+		);
+		await reopened.harness.session.recovery.recover();
+		expect(
+			reopened.harness.session.messages.filter(
+				(message) => message.role === "custom" && message.customType === "subagent-result",
+			),
+		).toHaveLength(1);
+	});
+
+	it("replays an already completed child once without starting a parent turn", async () => {
+		const { directory, harness, reader } = await fixture();
+		const role = discoverAgentDefinitions(harness.tempDir, directory).agents.find(
+			(agent) => agent.name === "worker",
+		)!;
+		queueFactory(harness, () => fauxAssistantMessage("REPLAYED_CHILD_RESULT"));
+		const child = reader.start(role, "Finish before the parent opens", { delivery: "async" });
+		await reader.wait(child.id);
+		await harness.session.bindExtensions({ mode: "json" });
+		await harness.session.waitForIdle();
+		const notices = harness.session.messages.filter(
+			(message) => message.role === "custom" && message.customType === "subagent-result",
+		);
+		expect(notices).toHaveLength(1);
+		expect(getMessageText(notices[0])).toContain("REPLAYED_CHILD_RESULT");
+		expect(harness.eventsOfType("agent_start")).toHaveLength(0);
+		expect(
+			harness.sessionManager
+				.getEntries()
+				.some((entry) => entry.type === "custom" && entry.customType === "pi.subagent-result-delivery"),
+		).toBe(false);
+	});
+
+	it("delivers a child completion observed during tree navigation passively on the origin branch", async () => {
+		const navigating = Promise.withResolvers<void>();
+		const finishNavigation = Promise.withResolvers<void>();
+		const { parent, harness, reader } = await fixture({
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_tree", async () => {
+						navigating.resolve();
+						await finishNavigation.promise;
+					});
+				},
+			],
+		});
+		const beforeLaunch = parent.getLeafId()!;
+		const started = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		let mainCalls = 0;
+		queueFactory(harness, async (_context, options) => {
+			if (options?.sessionId === parent.getSessionId())
+				return ++mainCalls === 1
+					? delegate({ task: "Complete during tree navigation", async: true })
+					: fauxAssistantMessage("Parent awaiting branch-scoped evidence");
+			started.resolve();
+			options?.signal?.addEventListener("abort", () => release.resolve(), { once: true });
+			await release.promise;
+			return fauxAssistantMessage("NAVIGATION_CHILD_RESULT");
+		});
+		const running = harness.session.prompt("Launch a child then change branches");
+		await started.promise;
+		await running;
+		const launchLeaf = parent.getLeafId()!;
+		const navigation = harness.session.navigateTree(beforeLaunch, { summarize: false });
+		await navigating.promise;
+		release.resolve();
+		try {
+			await vi.waitFor(() => expect(reader.list()[0].status).toBe("completed"));
+			await new Promise((resolve) => setImmediate(resolve));
+			expect(mainCalls).toBe(2);
+		} finally {
+			finishNavigation.resolve();
+			await navigation;
+		}
+		expect(JSON.stringify(harness.session.messages)).not.toContain("NAVIGATION_CHILD_RESULT");
+		await harness.session.navigateTree(launchLeaf, { summarize: false });
+		await harness.session.waitForIdle();
+		expect(mainCalls).toBe(2);
+		expect(getMessageText(harness.session.messages.at(-1))).toContain("NAVIGATION_CHILD_RESULT");
+		expect(
+			harness.session.messages.filter(
+				(message) => message.role === "custom" && message.customType === "subagent-result",
+			),
+		).toHaveLength(1);
+	});
+
+	it("preserves an eligible pending result when another branch's child finishes during a turn", async () => {
 		const { parent, harness, reader } = await fixture();
 		const beforeLaunch = parent.getLeafId()!;
+		const first = Promise.withResolvers<void>();
+		const second = Promise.withResolvers<void>();
+		const busy = Promise.withResolvers<void>();
+		const finish = Promise.withResolvers<void>();
+		let mainCalls = 0;
+		let children = 0;
+		queueFactory(harness, async (_context, options) => {
+			if (options?.sessionId !== parent.getSessionId()) {
+				const gate = ++children === 1 ? first : second;
+				options?.signal?.addEventListener("abort", () => gate.resolve(), { once: true });
+				await gate.promise;
+				return fauxAssistantMessage(gate === first ? "FIRST_FINDING" : "SECOND_FINDING");
+			}
+			if (++mainCalls === 1 || mainCalls === 3) return delegate({ task: "Find evidence", async: true });
+			if (mainCalls === 4) {
+				busy.resolve();
+				await finish.promise;
+			}
+			return fauxAssistantMessage(`Parent response ${mainCalls}`);
+		});
+		await harness.session.prompt("Launch the first child");
+		const origin = parent.getLeafId()!;
+		await harness.session.navigateTree(beforeLaunch, { summarize: false });
+		first.resolve();
+		await vi.waitFor(() => expect(reader.list()[0].status).toBe("completed"));
+		const run = harness.session.prompt("Launch the second child on this branch");
+		await busy.promise;
+		second.resolve();
+		try {
+			await vi.waitFor(() => expect(reader.list().filter((agent) => agent.status === "completed")).toHaveLength(2));
+		} finally {
+			finish.resolve();
+			await run;
+		}
+		expect(getMessageText(harness.session.messages.at(-1))).toContain("SECOND_FINDING");
+		await harness.session.navigateTree(origin, { summarize: false });
+		await harness.session.waitForIdle();
+		expect(getMessageText(harness.session.messages.at(-1))).toBe("Parent response 5");
+		expect(JSON.stringify(harness.session.messages)).toContain("FIRST_FINDING");
+	});
+
+	it.each([true, false])("holds an off-branch result with user chat at completion: %s", async (hasChat) => {
+		const { parent, harness, reader } = await fixture();
+		const beforeLaunch = hasChat ? parent.getLeafId()! : parent.getBranch()[0].id;
 		const started = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
 		const delivered = Promise.withResolvers<void>();
@@ -314,11 +627,14 @@ describe("native sub-agent controls", () => {
 				delivered.resolve();
 		});
 		let mainCalls = 0;
-		queueFactory(harness, async (_context, options) => {
-			if (options?.sessionId === parent.getSessionId())
-				return ++mainCalls === 1
-					? delegate({ task: "Finish on the originating branch", async: true })
-					: fauxAssistantMessage("Child launched on this branch");
+		queueFactory(harness, async (context, options) => {
+			if (options?.sessionId === parent.getSessionId()) {
+				if (++mainCalls === 1) return delegate({ task: "Finish on the originating branch", async: true });
+				if (mainCalls === 2) return fauxAssistantMessage("Child launched on this branch");
+				expect(mainCalls).toBe(3);
+				expect(JSON.stringify(context)).toContain("BRANCH_SCOPED_RESULT");
+				return fauxAssistantMessage("Parent consumed the result on its originating branch");
+			}
 			started.resolve();
 			options?.signal?.addEventListener("abort", () => release.resolve(), { once: true });
 			await release.promise;
@@ -337,15 +653,22 @@ describe("native sub-agent controls", () => {
 				(message) => message.role === "custom" && message.customType === "subagent-result",
 			),
 		).toBe(false);
+		expect(mainCalls).toBe(2);
 		await harness.session.navigateTree(launchLeaf, { summarize: false });
 		await delivered.promise;
 		unsubscribe();
+		await harness.session.waitForIdle();
+		if (hasChat)
+			expect(getMessageText(harness.session.messages.at(-1))).toBe(
+				"Parent consumed the result on its originating branch",
+			);
+		else expect(getMessageText(harness.session.messages.at(-1))).toContain("BRANCH_SCOPED_RESULT");
 		expect(
 			harness.session.messages.filter(
 				(message) => message.role === "custom" && message.customType === "subagent-result",
 			),
 		).toHaveLength(1);
-		expect(mainCalls).toBe(2);
+		expect(mainCalls).toBe(hasChat ? 3 : 2);
 	});
 	it("paginates the actual rows returned under the byte cap without losing queued children", async () => {
 		const { directory, parent, harness, reader } = await fixture({ settings: { subagents: { maxConcurrent: 1 } } });

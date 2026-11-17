@@ -40,7 +40,12 @@ function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 
 const bashSchema = Type.Object({
 	command: Type.String({ description: "Shell command to execute" }),
-	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+	timeout: Type.Optional(
+		Type.Number({
+			description:
+				"Timeout in seconds. Synchronous commands have no default timeout and require a positive value when set. Background jobs default to 5400 seconds (90 minutes); set 0 for unlimited or a positive value to override.",
+		}),
+	),
 	async: Type.Optional(
 		Type.Boolean({
 			description: "Run local bash as a persistent background job and return its ID immediately (default: false)",
@@ -330,7 +335,7 @@ export function createShellToolDefinition(
 	return {
 		name: config.name,
 		label: config.label,
-		description: `Execute a ${config.shellName} command in the current working directory. Returns combined stdout/stderr. In a Pi session, oversized output streams to a persistent artifact and the inline preview uses an adaptive token budget. Standalone calls retain the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB. Optionally provide a timeout in seconds. Local bash accepts async:true for persistent background jobs; use jobs to manage them.`,
+		description: `Execute a ${config.shellName} command in the current working directory. Returns combined stdout/stderr. In a Pi session, oversized output streams to a persistent artifact and the inline preview uses an adaptive token budget. Standalone calls retain the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB. Optionally provide a timeout in seconds. Synchronous commands have no default timeout. Local bash accepts async:true for persistent background jobs with a default timeout of 5400 seconds (90 minutes); set timeout:0 for unlimited or a positive timeout to override. Use jobs to manage them.`,
 		promptSnippet: config.promptSnippet,
 		promptGuidelines: exposeSessionEnvironment && config.promptGuidelines ? [...config.promptGuidelines] : undefined,
 		parameters: bashSchema,
@@ -357,7 +362,7 @@ export function createShellToolDefinition(
 						"Persistent background execution requires the local bash backend; custom and PowerShell operations do not support async:true",
 					);
 				}
-				resolveTimeoutMs(timeout);
+				if (timeout !== 0) resolveTimeoutMs(timeout);
 				const job = await new JobManager().start(spawnContext.command, spawnContext.cwd, {
 					name,
 					timeout,
