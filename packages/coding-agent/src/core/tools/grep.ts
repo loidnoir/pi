@@ -1,3 +1,4 @@
+import path from "node:path";
 import { type Static, Type } from "typebox";
 import { createSearchJob } from "../../utils/native-search.ts";
 import type { ToolDefinition } from "../extensions/types.ts";
@@ -19,7 +20,10 @@ const grepSchema = Type.Object({
 		}),
 	),
 	glob: Type.Optional(
-		Type.String({ description: "Additional file glob filter, e.g. '*.ts'; prefix ! to exclude matching paths" }),
+		Type.String({
+			description:
+				"File glob relative to each search root, e.g. 'src/**/*.ts'. Bare '*.ts' matches at any depth; prefix ! to exclude matching paths",
+		}),
 	),
 	ignoreCase: Type.Optional(Type.Boolean({ description: "Case-insensitive search (default: false)" })),
 	literal: Type.Optional(Type.Boolean({ description: "Treat the pattern literally (default: false)" })),
@@ -59,6 +63,10 @@ export interface GrepToolDetails {
 /** Optional directory classification. Remote search requires overriding execute(), not this local backend. */
 export interface GrepOperations {
 	isDirectory: (absolutePath: string) => Promise<boolean> | boolean;
+	/**
+	 * @deprecated Ignored. Override the tool's execute() for remote search.
+	 */
+	readFile?: (absolutePath: string) => Promise<string> | string;
 }
 
 export interface GrepToolOptions {
@@ -92,16 +100,20 @@ export function createGrepToolDefinition(
 			const perFileLimit = scope.singleFile ? Math.min(matchLimit, args.limit === undefined ? 200 : matchLimit) : 20;
 			const context =
 				args.context === undefined ? undefined : Math.max(0, Math.min(0xffffffff, Math.floor(args.context)));
+			const glob = args.glob
+				?.split(path.sep)
+				.join("/")
+				.replace(/^(!?)(?:\.\/)+/, "$1");
 			const { job, dispose } = createSearchJob(signal);
 			try {
 				const result = await job.grep({
 					targets: scope.targets,
 					exclusions: scope.exclusions,
 					pattern: args.pattern,
-					glob: args.glob?.startsWith("!")
-						? `!${recursiveBasenameGlob(args.glob.slice(1))}`
-						: args.glob
-							? recursiveBasenameGlob(args.glob)
+					glob: glob?.startsWith("!")
+						? `!${recursiveBasenameGlob(glob.slice(1))}`
+						: glob
+							? recursiveBasenameGlob(glob)
 							: undefined,
 					ignoreCase: args.ignoreCase ?? false,
 					literal: args.literal ?? false,

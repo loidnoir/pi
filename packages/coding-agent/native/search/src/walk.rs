@@ -131,11 +131,23 @@ pub fn visit(
         Entries::Files => (true, false),
         Entries::Paths { hidden } => (hidden, true),
     };
+    let absolute_filter =
+        symlinks && filter_pattern.is_some_and(|pattern| Path::new(pattern).is_absolute());
     let path_filter = filter_pattern
         .map(|pattern| {
             let negated = negated_globs && pattern.starts_with('!');
             let pattern = if negated { &pattern[1..] } else { pattern };
-            compile_glob(pattern).map(|glob| (glob, negated))
+            if negated_globs {
+                compile_glob(pattern).map(|glob| (glob, negated))
+            } else {
+                GlobBuilder::new(pattern)
+                    .literal_separator(true)
+                    .backslash_escape(false)
+                    .case_insensitive(pattern == pattern.to_lowercase())
+                    .build()
+                    .map(|glob| (glob.compile_matcher(), negated))
+                    .map_err(io::Error::other)
+            }
         })
         .transpose()?;
     let filter_depth = path_filter
@@ -171,6 +183,13 @@ pub fn visit(
             Err(error) => return Err(error),
         };
         if metadata.is_file() || (symlinks && metadata.file_type().is_symlink()) {
+            if absolute_filter
+                && path_filter
+                    .as_ref()
+                    .is_some_and(|(glob, _)| !glob.is_match(root))
+            {
+                continue;
+            }
             if visited
                 .as_mut()
                 .is_none_or(|seen| seen.insert(root.to_path_buf()))
@@ -206,11 +225,25 @@ pub fn visit(
             .git_exclude(gitignore)
             .require_git(inside_git_repository(root))
             .sort_by_file_path(Path::cmp);
+        let target_filter_depth = if absolute_filter {
+            let prefix_depth = display_path(root)
+                .trim_end_matches('/')
+                .bytes()
+                .filter(|byte| *byte == b'/')
+                .count()
+                + 1;
+            filter_depth.map(|depth| depth.saturating_sub(prefix_depth))
+        } else {
+            filter_depth
+        };
         builder.max_depth(
-            [selector.as_ref().and_then(glob_max_depth), filter_depth]
-                .into_iter()
-                .flatten()
-                .min(),
+            [
+                selector.as_ref().and_then(glob_max_depth),
+                target_filter_depth,
+            ]
+            .into_iter()
+            .flatten()
+            .min(),
         );
         let filter = excluded.clone();
         let negative = path_filter
@@ -247,9 +280,9 @@ pub fn visit(
             if selector
                 .as_ref()
                 .is_some_and(|glob| !glob.is_match(relative))
-                || path_filter
-                    .as_ref()
-                    .is_some_and(|(glob, negated)| !negated && !glob.is_match(relative))
+                || path_filter.as_ref().is_some_and(|(glob, negated)| {
+                    !negated && !glob.is_match(if absolute_filter { path } else { relative })
+                })
             {
                 continue;
             }

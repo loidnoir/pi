@@ -349,6 +349,42 @@ describe("TuiAltScreen", () => {
 		tui.stop();
 	});
 
+	// #9549: re-rendering a long transcript on every wheel event saturated a core.
+	it("scrolls without re-rendering components until content changes", async () => {
+		const terminal = new VirtualTerminal(20, 4);
+		const tui = new TuiAltScreen(terminal);
+		const text = new Text(Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join("\n"), 0, 0);
+		let renders = 0;
+		const counted = {
+			render: (width: number) => {
+				renders += 1;
+				return text.render(width);
+			},
+			invalidate: () => text.invalidate(),
+		};
+		tui.setLayoutRoot(new ScrollView(counted, { follow: "end", primary: true }));
+		tui.start();
+		await terminal.waitForRender();
+		const initialRenders = renders;
+
+		terminal.sendInput("\x1b[<64;1;1M");
+		await terminal.waitForRender();
+		tui.scrollBy(-1);
+		await terminal.waitForRender();
+		assert.strictEqual(renders, initialRenders);
+		assert.deepStrictEqual(
+			terminal.getViewport().map((line) => line.trimEnd()),
+			["line 5", "line 6", "line 7", "line 8"],
+		);
+
+		text.setText("changed");
+		tui.requestRender();
+		await terminal.waitForRender();
+		assert.ok(renders > initialRenders);
+		assert.strictEqual(terminal.getViewport()[0]?.trimEnd(), "changed");
+		tui.stop();
+	});
+
 	it("scrolls faster while Alt is held during wheel input", async () => {
 		const terminal = new VirtualTerminal(20, 4);
 		const tui = new TuiAltScreen(terminal);
@@ -805,6 +841,40 @@ describe("TuiAltScreen", () => {
 		tui.stop();
 	});
 
+	// #9549: scroll frames reuse earlier output; search must still see content that changed in between.
+	it("keeps search matches current across view-only scroll frames and content changes", async () => {
+		const terminal = new RecordingTerminal(60, 8);
+		const tui = new TuiAltScreen(terminal);
+		const lines = Array.from({ length: 12 }, (_, index) => (index === 4 ? "line 5 needle one" : `line ${index + 1}`));
+		const transcriptText = new Text(lines.join("\n"), 0, 0);
+		const transcript = new ScrollView(transcriptText, { follow: "end", primary: true });
+		tui.setLayoutRoot(transcript);
+		tui.start();
+		await terminal.waitForRender();
+
+		terminal.sendInput("\x1b[102;6u");
+		terminal.sendInput("needle");
+		await terminal.waitForRender();
+		assert.ok(terminal.getViewport().some((line) => line.includes("1/1")));
+
+		for (let index = 0; index < 3; index++) terminal.sendInput("\x1b[<65;1;4M");
+		await terminal.waitForRender();
+		const scrolledTop = transcript.scrollTop;
+		assert.ok(scrolledTop > 0);
+
+		lines[10] = "line 11 needle two";
+		transcriptText.setText(lines.join("\n"));
+		tui.requestRender();
+		await terminal.waitForRender();
+		assert.ok(terminal.getViewport().some((line) => line.includes("1/2")));
+
+		terminal.sendInput("\x1b[103;6u");
+		await terminal.waitForRender();
+		assert.ok(terminal.getViewport().some((line) => line.includes("2/2")));
+		assert.ok(terminal.getViewport().some((line) => line.includes("line 11 needle two")));
+		tui.stop();
+	});
+
 	it("searches the transcript with Ctrl+Shift+F and restores editor focus on close", async () => {
 		const terminal = new RecordingTerminal(60, 8);
 		const tui = new TuiAltScreen(terminal);
@@ -1151,11 +1221,9 @@ describe("TuiAltScreen", () => {
 		tui.stop();
 	});
 
-	it("redraws WezTerm Kitty images after writes to covered rows", async () => {
-		// Regression test for #10319: a scrollbar update below an unchanged image anchor erased its cells.
-		const weztermPane = process.env.WEZTERM_PANE;
+	it("redraws Kitty images after writes to covered rows", async () => {
+		// Regression test for #10319: in WezTerm, a scrollbar update below an unchanged image anchor erased its cells.
 		let tui: TuiAltScreen | undefined;
-		process.env.WEZTERM_PANE = "1";
 		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
 		try {
 			const terminal = new RecordingTerminal(20, 4);
@@ -1187,8 +1255,67 @@ describe("TuiAltScreen", () => {
 		} finally {
 			tui?.stop();
 			resetCapabilitiesCache();
-			if (weztermPane === undefined) delete process.env.WEZTERM_PANE;
-			else process.env.WEZTERM_PANE = weztermPane;
+		}
+	});
+
+	it("keeps uploaded Kitty images across a full redraw", async () => {
+		// Regression test for #12010: Kitty frees image data without placements on ED 2, so a full redraw
+		// that deleted placements and then cleared the screen left placement-only reuse pointing at nothing.
+		let tui: TuiAltScreen | undefined;
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		try {
+			const terminal = new RecordingTerminal(20, 6);
+			const imageId = 12010;
+			const imageLine = encodeKitty("AAAA", { columns: 2, rows: 3, imageId, moveCursor: false });
+			registerKittyImageMetadata({ imageId, columns: 2, rows: 3, widthPx: 100, heightPx: 100 });
+			tui = new TuiAltScreen(terminal);
+			tui.setLayoutRoot({ render: () => ["before", imageLine, "", "", "after"], invalidate: () => {} });
+			tui.start();
+			await terminal.waitForRender();
+			const eventCount = terminal.events.length;
+
+			terminal.resize(20, 8);
+			await terminal.waitForRender();
+			const redrawWrites = terminal.events
+				.slice(eventCount)
+				.filter((event): event is { type: "write"; data: string } => event.type === "write")
+				.map((event) => event.data)
+				.join("");
+			assert.ok(redrawWrites.includes("\x1b_Ga=p,q=2"));
+			assert.ok(!redrawWrites.includes("\x1b_Ga=T"));
+			assert.ok(!redrawWrites.includes("\x1b[2J"));
+			assert.ok(terminal.getViewport().some((line) => line.trimEnd() === "after"));
+		} finally {
+			tui?.stop();
+			resetCapabilitiesCache();
+		}
+	});
+
+	it("draws Kitty images after clearing the rows they cover", async () => {
+		// Regression test for #11835: Orca's xterm.js image addon stores images in cells, so clearing
+		// the covered rows after the placement erased all but the first image row.
+		let tui: TuiAltScreen | undefined;
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		try {
+			const terminal = new RecordingTerminal(20, 5);
+			const imageId = 11835;
+			const imageLine = encodeKitty("AAAA", { columns: 2, rows: 3, imageId, moveCursor: false });
+			registerKittyImageMetadata({ imageId, columns: 2, rows: 3, widthPx: 100, heightPx: 100 });
+			tui = new TuiAltScreen(terminal);
+			tui.setLayoutRoot({ render: () => ["before", imageLine, "", "", "after"], invalidate: () => {} });
+			tui.start();
+			await terminal.waitForRender();
+
+			const writes = terminal.events
+				.filter((event): event is { type: "write"; data: string } => event.type === "write")
+				.map((event) => event.data)
+				.join("");
+			const transmitIndex = writes.indexOf("\x1b_Ga=T");
+			assert.ok(transmitIndex > writes.lastIndexOf("\x1b[4;1H\x1b[2K"));
+			assert.ok(transmitIndex > writes.indexOf("after"));
+		} finally {
+			tui?.stop();
+			resetCapabilitiesCache();
 		}
 	});
 

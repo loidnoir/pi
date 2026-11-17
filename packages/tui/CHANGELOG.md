@@ -2,15 +2,36 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- `Component.render()` now returns `readonly string[]`, and `Container.render()` returns the same cached array while its children are unchanged, like `Text`, `Markdown`, and `Box` already did. Code that modifies render output in place, including `super.render()` in a `Container` subclass, must copy it first ([#9549](https://github.com/earendil-works/pi/issues/9549))
+
+### Fixed
+
+- Fixed expanding marker-looking text inside pasted content, losing killed paste content after submission, and character jumps splitting atomic markers. Backspace renumbering now preserves cursor positions when marker IDs change digit count.
+
+- Fixed fullscreen Kitty images disappearing after a full redraw such as a window resize. Clearing the screen made Kitty free the cached image data that the redraw then tried to reuse ([#12010](https://github.com/earendil-works/pi/issues/12010))
+- Fixed text after a multi-row inline image in Markdown drawing over the image when the image's rows were joined with hard line breaks ([#12017](https://github.com/earendil-works/pi/issues/12017))
+- Fixed Kitty and iTerm2 images covering overlays drawn over them. An image that an overlay overlaps by row and column is now removed while the overlay is open and drawn again when it closes. Images beside an overlay, such as a sidebar, stay visible ([#11584](https://github.com/earendil-works/pi/issues/11584))
+- Fixed fullscreen scrolling re-rendering the whole transcript on every wheel event and key press, which saturated a CPU core in long sessions; scroll frames now reuse the previous output ([#9549](https://github.com/earendil-works/pi/issues/9549))
+- Fixed containers copying every rendered line on every frame, and sped up column slicing for ASCII and other text without combining characters ([#9549](https://github.com/earendil-works/pi/issues/9549))
+
 ### Added
 
 - Added `EditorHost` for embedding the native multiline editor in pane renderers with only render invalidation and a viewport height, while preserving full TUI access for existing editor subclasses.
 - Added atomic `EditorContent` items for compact pasted text, files, and images, with visible-item selection and undoable in-place text updates. Editor subclasses can customize paste collapse policy and viewport height.
 
+## [1.5.2] - 2026-11-10
+
+## [1.5.1] - 2026-11-09
+
 ### Fixed
 
 - Fixed Markdown rendering HTML comments (`<!-- ... -->`) as visible text ([#11710](https://github.com/earendil-works/pi/issues/11710))
-- Fixed expanding marker-looking text inside pasted content, losing killed paste content after submission, and character jumps splitting atomic markers. Backspace renumbering now preserves cursor positions when marker IDs change digit count.
+- Fixed fullscreen Kitty images in Orca showing only their first row. Orca's xterm.js image addon stores images in the cells they cover. `TuiAltScreen` now draws Kitty images after clearing and writing the rows they cover on every terminal, not only WezTerm ([#11835](https://github.com/earendil-works/pi/issues/11835))
+- Fixed deleting a paste marker with Backspace corrupting later short markers such as `[paste #2]`, causing the marker text to be submitted instead of its pasted content ([#11923](https://github.com/earendil-works/pi/issues/11923))
+- Fixed internal cursor markers leaking into terminal output, including with multiple markers or horizontally clipped content ([#9441](https://github.com/earendil-works/pi/pull/9441) by [@muyiyr](https://github.com/muyiyr))
+- Fixed Alacritty hyperlinks not being enabled when `TERM_PROGRAM` is unset; detection now also uses `TERM` and `ALACRITTY_WINDOW_ID` ([#11767](https://github.com/earendil-works/pi/issues/11767))
 
 ## [1.5.0] - 2026-11-02
 

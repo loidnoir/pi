@@ -16,6 +16,7 @@ import {
 	LinesBlock,
 	lastLine,
 	OutputBlock,
+	parsedArgs,
 	relativePath,
 	type Step,
 	stringOf,
@@ -65,6 +66,7 @@ const bash: ToolActivity = {
 			style: "code",
 		};
 	},
+	brief: "Running",
 	argument: (tool) => firstLine(stringOf(tool.args.command)),
 	failure: (tool) => {
 		const code = /exited with code (\d+)/.exec(tool.output)?.[1];
@@ -72,6 +74,7 @@ const bash: ToolActivity = {
 	},
 	summary: (count) => (count === 1 ? "ran a command" : `ran ${count} commands`),
 	Detail: BashDetail,
+	CallInput: ({ call }) => <CommandBlock command={stringOf(parsedArgs(call.args).command)} />,
 };
 
 /** A read's output ("40\tcode" per line) as the file's lines, numbered from where the read started. */
@@ -126,6 +129,7 @@ const read: ToolActivity = {
 		};
 	},
 	running: (step) => ({ kind: "read", verb: "Reading", object: fileName(pathOf(step)), style: "file" }),
+	brief: "Reading",
 	argument: (tool, cwd) => relativePath(cwd, stringOf(tool.args.path)),
 	summary: (count) => (count === 1 ? "read a file" : `read ${count} files`),
 	Detail: ReadDetail,
@@ -163,6 +167,7 @@ const change = (verb: string, running: string): ToolActivity => ({
 		description: failureOf(step) ?? pathOf(step),
 	}),
 	running: (step) => ({ kind: "edit", verb: running, object: fileName(pathOf(step)), style: "file" }),
+	brief: running,
 	argument: (tool, cwd) => relativePath(cwd, stringOf(tool.args.path)),
 	summary: edited,
 	Detail: ChangeDetail,

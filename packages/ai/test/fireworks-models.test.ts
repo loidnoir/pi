@@ -159,6 +159,26 @@ describe("Fireworks models", () => {
 		expect(getSupportedThinkingLevels(getModel("fireworks", modelId))).toEqual(levels);
 	});
 
+	it("keeps non-adaptive Messages models on budget-based thinking", async () => {
+		const model = createFireworksModel();
+		expect(model.compat?.forceAdaptiveThinking).toBeUndefined();
+		let payload: Record<string, unknown> | undefined;
+		await streamSimple(
+			model,
+			{ messages: [{ role: "user", content: "test", timestamp: 0 }] },
+			{
+				apiKey: "test-fireworks-key",
+				reasoning: "high",
+				onPayload: (value) => {
+					payload = value as Record<string, unknown>;
+					throw new Error("payload captured");
+				},
+			},
+		).result();
+		expect(payload?.thinking).toEqual({ type: "enabled", budget_tokens: 16384, display: "summarized" });
+		expect(payload?.output_config).toBeUndefined();
+	});
+
 	it("resolves FIREWORKS_API_KEY from the environment", () => {
 		process.env.FIREWORKS_API_KEY = "test-fireworks-key";
 
@@ -177,6 +197,17 @@ describe("Fireworks models", () => {
 		expect(lookup).toMatchObject({ name: "lookup", input_schema: tool.parameters });
 		expect(lookup).not.toHaveProperty("cache_control");
 		expect(lookup).not.toHaveProperty("eager_input_streaming");
+	});
+
+	it("sets Fireworks-specific compat for session affinity and unsupported tool fields", () => {
+		const model = getModel("fireworks", "accounts/fireworks/models/deepseek-v4p1-flash");
+
+		expect(model.compat).toBeDefined();
+		expect(model.compat?.sendSessionAffinityHeaders).toBe(true);
+		expect(model.compat?.supportsEagerToolInputStreaming).toBe(false);
+		expect(model.compat?.supportsCacheControlOnTools).toBe(false);
+		expect(model.compat?.supportsLongCacheRetention).toBe(false);
+		expect(model.compat?.allowEmptySignature).toBe(true);
 	});
 });
 

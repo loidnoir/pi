@@ -103,7 +103,7 @@ class SettingsIconList extends SettingsList {
 		this.display = display;
 	}
 
-	override render(width: number): string[] {
+	override render(width: number): readonly string[] {
 		this.display.active = true;
 		try {
 			return super.render(width);

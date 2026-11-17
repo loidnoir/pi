@@ -45,7 +45,7 @@ afterEach(() => {
 	setTheme("dark");
 });
 
-function plain(lines: string[]): string {
+function plain(lines: readonly string[]): string {
 	return lines.map(stripVTControlCharacters).join("\n");
 }
 

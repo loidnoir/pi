@@ -83,6 +83,7 @@ function PortsDetail({ step }: { step: Step }) {
 const port = (tool: ToolView) => (typeof tool.args.port === "number" ? String(tool.args.port) : "");
 
 export const portsActivity: ToolActivity = {
+	brief: "Using ports",
 	describe(step) {
 		const action = stringOf(step.tool.args.action);
 		return {
@@ -98,7 +99,7 @@ export const portsActivity: ToolActivity = {
 		[stringOf(tool.args.action), port(tool), stringOf(tool.args.name), tool.args.public === true ? "public" : ""]
 			.filter(Boolean)
 			.join(" "),
-	hasResult: (tool) => forwardOf(tool) !== undefined,
+	hasResult: (tool) => (forwardOf(tool) ? "after" : false),
 	Result: PortLinks,
 	Detail: PortsDetail,
 };

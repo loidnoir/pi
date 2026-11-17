@@ -7,15 +7,19 @@ import {
 	errorText,
 	LockIcon,
 	PlusIcon,
+	pressVerb,
 	Sheet,
 	SlotList,
+	upperFirst,
 	useNavigation,
 	useObject,
 	useOptimisticCall,
+	usePointerKind,
 	useReadable,
 } from "@p2/app/v1/web";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { type EnvSummary, Envs, type EnvTest, type EnvUser, type SandboxStatus } from "./contract.ts";
+import { SecretsSection } from "./SecretsSection.tsx";
 import {
 	DEFAULT_DISK_GB,
 	ENV_NAME,
@@ -480,6 +484,7 @@ function FoldersField({
 	mounts: SandboxMount[];
 	onChange: (mounts: SandboxMount[]) => void;
 }) {
+	const press = upperFirst(pressVerb(usePointerKind()));
 	const [adding, setAdding] = useState<{ host: string; guest: string; readonly: boolean }>();
 	const ready = adding !== undefined && adding.host.trim() !== "" && adding.guest.trim() !== "";
 	const add = () => {
@@ -508,7 +513,9 @@ function FoldersField({
 					<button
 						type="button"
 						className="text-action"
-						title={mount.readonly ? "Read-only; tap to allow writes" : "Writable; tap to make read-only"}
+						title={
+							mount.readonly ? `Read-only: ${press} to allow writes` : `Writable: ${press} to make read-only`
+						}
 						onClick={() =>
 							onChange(
 								mounts.map((each, at) =>
@@ -1038,6 +1045,9 @@ export function EnvsPanel({ env: screen, onClose }: { env?: string; onClose: () 
 						</button>
 					</div>
 				</form>
+				{editing.kind === "gondolin" && existing && (
+					<SecretsSection sandbox={name} onChanged={() => void readVm(name)?.then((vm) => setVm(name, vm))} />
+				)}
 				{editing.kind === "ssh" && service && (
 					<KeySection service={service} name={name} onKey={(identityFile) => updateSsh({ identityFile })} />
 				)}

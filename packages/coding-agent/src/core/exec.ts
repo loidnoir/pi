@@ -4,6 +4,7 @@
 
 import { constants as bufferConstants } from "node:buffer";
 import { spawn } from "node:child_process";
+import { constants as osConstants } from "node:os";
 import { StringDecoder } from "node:string_decoder";
 import { waitForChildProcess } from "../utils/child-process.ts";
 import type { OutputArtifact, OutputArtifacts } from "./output-artifacts.ts";
@@ -37,6 +38,7 @@ export interface ExecOptions {
 export interface ExecResult {
 	stdout: string;
 	stderr: string;
+	/** Exit code, or 128 + signal number when a signal terminated the command (143 for SIGTERM). */
 	code: number;
 	/** The command was terminated by pi: timeout, abort, or output over `maxBuffer`. */
 	killed: boolean;
@@ -176,7 +178,9 @@ export async function execCommand(
 		await capture.output.closeTempFile();
 	}
 
-	const exitCode = code ?? 0;
+	// A signal-killed command has no exit code. Use the shell convention, as the bash tool does, so a
+	// timeout, an abort or a crash does not read as success (#12088).
+	const exitCode = code ?? (proc.signalCode ? 128 + (osConstants.signals[proc.signalCode] ?? 0) : 1);
 	return {
 		stdout,
 		stderr,

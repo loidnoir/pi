@@ -115,12 +115,16 @@ export function createFindToolDefinition(
 			} else {
 				const scope = await resolveSearchScope(effectiveCwd, args.path, "find");
 				missingPaths = scope.missingPaths;
+				const normalizedPattern = pattern
+					.split(path.sep)
+					.join("/")
+					.replace(/^(?:\.\/)+/, "");
 				const { job, dispose } = createSearchJob(signal);
 				try {
 					const result = await job.glob({
 						targets: scope.targets,
 						exclusions: scope.exclusions,
-						pattern: recursiveBasenameGlob(pattern),
+						pattern: recursiveBasenameGlob(normalizedPattern),
 						hidden: args.hidden ?? true,
 						gitignore: args.gitignore ?? true,
 						limit,

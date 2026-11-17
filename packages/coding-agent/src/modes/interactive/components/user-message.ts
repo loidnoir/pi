@@ -49,6 +49,7 @@ export class UserMessageComponent extends Container {
 	private markdownTransformers: readonly MarkdownTransformer[];
 	private messageId?: string;
 	private timestamp?: string;
+	private zoneLines?: { source: readonly string[]; lines: string[] };
 
 	constructor(
 		content: UserMessage["content"],
@@ -195,26 +196,30 @@ export class UserMessageComponent extends Container {
 		return super.handleMouse({ ...event, y: event.y - 1, height: event.height - 2 });
 	}
 
-	override render(width: number): string[] {
+	override render(width: number): readonly string[] {
 		if (width <= 0) return [];
 		const padding = Math.min(this.outputPad, Math.max(0, Math.floor((width - 1) / 2)));
 		if (padding !== this.renderedPad) {
 			this.renderedPad = padding;
 			this.rebuild();
 		}
-		const content = this.children.flatMap((child) => {
-			const lines = child.render(width);
-			// A wide glyph cannot fit a one-column content area. Normal wrapped rows and image payloads need no scan.
-			return child instanceof Image || width - padding * 2 >= 2
-				? lines
-				: lines.map((line) => truncateToWidth(line, width));
-		});
-		if (content.length === 0) return content;
-		const blank = theme.bg("userMessageBg", " ".repeat(width));
-		const lines = [blank, ...content, blank];
+		const lines = super.render(width);
+		if (lines.length === 0) return lines;
 
-		lines[0] = OSC133_ZONE_START + lines[0];
-		lines[lines.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + lines[lines.length - 1];
-		return lines;
+		// Container output is shared across frames; copy it once per change instead of mutating it.
+		if (this.zoneLines?.source !== lines) {
+			// A wide glyph cannot fit a one-column content area. Normal wrapped rows and image payloads need no scan.
+			const content =
+				width - padding * 2 >= 2
+					? lines
+					: this.children.flatMap((child) => {
+							const rendered = child.render(width);
+							return child instanceof Image ? rendered : rendered.map((line) => truncateToWidth(line, width));
+						});
+			const blank = theme.bg("userMessageBg", " ".repeat(width));
+			const zoned = [OSC133_ZONE_START + blank, ...content, OSC133_ZONE_END + OSC133_ZONE_FINAL + blank];
+			this.zoneLines = { source: lines, lines: zoned };
+		}
+		return this.zoneLines.lines;
 	}
 }

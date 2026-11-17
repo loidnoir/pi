@@ -1,4 +1,4 @@
-import type { Api, ImageContent, Model, ModelImageResizeOptions, TextContent } from "@earendil-works/pi-ai";
+import type { ImageContent, ModelImageResizeOptions, TextContent } from "@earendil-works/pi-ai";
 import { constants } from "fs";
 import { access as fsAccess, open as fsOpen, readFile as fsReadFile, stat as fsStat } from "fs/promises";
 import { type Static, Type } from "typebox";
@@ -82,6 +82,7 @@ export interface ReadToolDetails {
 	artifactPage?: ArtifactPage;
 	source?: ReaderSource;
 	status?: ReaderResult["status"];
+	imageUnsupportedByModel?: string;
 }
 
 /**
@@ -113,14 +114,17 @@ const defaultReadOperations: ReadOperations = {
 /**
  * Stream a local file the way fs.readFile reads it: a regular file up to its size when opened, so text
  * appended during the read is not counted and a growing file still ends; a file reporting size 0 (such
- * as /proc files) and other file types until EOF.
+ * as /proc files) and other file types until EOF. Abort is left to the read tool, which stops consuming
+ * the stream when its signal aborts; leaving its loop closes the stream.
  */
-async function* readLocalFileChunks(path: string, { signal }: { signal?: AbortSignal }): AsyncIterable<Uint8Array> {
+async function* readLocalFileChunks(path: string): AsyncIterable<Uint8Array> {
 	const handle = await fsOpen(path, "r");
 	try {
 		const stats = await handle.stat();
 		const end = stats.isFile() && stats.size > 0 ? stats.size - 1 : undefined;
-		yield* handle.createReadStream({ end, signal, autoClose: false });
+		// No signal for the stream: one that aborts before the stream's iterator attaches makes the stream
+		// emit an 'error' no listener handles, which crashes the process (#11956).
+		yield* handle.createReadStream({ end, autoClose: false });
 	} finally {
 		await handle.close();
 	}
@@ -146,13 +150,6 @@ function toReadOutput(content: (TextContent | ImageContent)[]): ReadToolOutput {
 	const images = content.filter((block) => block.type === "image");
 	if (images.length > 1) return { type: "document", text, images };
 	return images[0] ? { type: "image", data: images[0].data, mimeType: images[0].mimeType, note: text } : text;
-}
-
-function getNonVisionImageNote(model: Model<Api> | undefined): string | undefined {
-	if (!model || model.input.includes("image")) {
-		return undefined;
-	}
-	return "[Current model does not support images. The image will be omitted from this request.]";
 }
 
 /** The lines a read shows, with the file's line count; line counts follow `text.split("\n")`. */
@@ -396,7 +393,6 @@ export function createReadToolDefinition(
 							const mimeType = ops.detectImageMimeType ? await ops.detectImageMimeType(absolutePath) : undefined;
 							let content: (TextContent | ImageContent)[];
 							let details: ReadToolDetails | undefined;
-							const nonVisionImageNote = getNonVisionImageNote(ctx?.model);
 							if (mimeType) {
 								// Read image as binary.
 								const buffer = await ops.readFile(absolutePath);
@@ -405,17 +401,18 @@ export function createReadToolDefinition(
 									resizeOptions: ctx?.model?.inputLimits?.images?.resize ?? fallbackResizeOptions,
 								});
 								if (!processed.ok) {
-									let textNote = `Read image file [${mimeType}]\n${processed.message}`;
-									if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
+									const textNote = `Read image file [${mimeType}]\n${processed.message}`;
 									content = [{ type: "text", text: textNote }];
 								} else {
 									let textNote = `Read image file [${processed.mimeType}]`;
 									if (processed.hints.length > 0) textNote += `\n${processed.hints.join("\n")}`;
-									if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
 									content = [
 										{ type: "text", text: textNote },
 										{ type: "image", data: processed.data, mimeType: processed.mimeType },
 									];
+									if (ctx?.model && !ctx.model.input.includes("image")) {
+										details = { imageUnsupportedByModel: ctx.model.id };
+									}
 								}
 							} else {
 								// Read text content. Convert offset from 1-indexed input to 0-indexed line access.
@@ -511,11 +508,10 @@ async function readDocument(
 			type: "text",
 			text: `PDF page ${image.page}${processed.ok ? (processed.hints.length ? `\n${processed.hints.join("\n")}` : "") : `: ${processed.message}`}`,
 		});
-		if (processed.ok) content.push({ type: "image", data: processed.data, mimeType: processed.mimeType });
-	}
-	if (result.images.length) {
-		const note = getNonVisionImageNote(ctx?.model);
-		if (note) content.push({ type: "text", text: note });
+		if (processed.ok) {
+			content.push({ type: "image", data: processed.data, mimeType: processed.mimeType });
+			if (ctx?.model && !ctx.model.input.includes("image")) details.imageUnsupportedByModel = ctx.model.id;
+		}
 	}
 	if (input.offset !== undefined || input.limit !== undefined) {
 		const store = ctx && getOutputArtifacts(ctx.sessionManager);

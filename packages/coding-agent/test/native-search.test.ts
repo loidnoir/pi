@@ -547,6 +547,29 @@ describe("native find", () => {
 		expect(result.details?.resultLimitReached).toBe(2);
 	});
 
+	it("filters absolute patterns across overlapping roots before selecting the newest results", async () => {
+		for (const directory of ["a", "b"]) mkdirSync(join(root, directory));
+		for (const [file, modified] of [
+			["a/keep-old.ts", 100],
+			["a/keep-new.ts", 300],
+			["b/keep-middle.ts", 200],
+			["b/unwanted.ts", 400],
+		] as const) {
+			writeFileSync(join(root, file), "");
+			utimesSync(join(root, file), modified, modified);
+		}
+		const find = createFindTool(root);
+		const args = { path: "a;b;.;a/*.ts;b/unwanted.ts", pattern: `${root.replaceAll("\\", "/")}/*/keep*.ts` };
+		const limited = await find.execute("absolute-newest", { ...args, limit: 2 });
+		expect(limited.content[0]).toMatchObject({
+			text: expect.stringMatching(/^a\/keep-new.ts\nb\/keep-middle.ts\n/),
+		});
+		expect(limited.details?.resultLimitReached).toBe(2);
+		const complete = await find.execute("absolute-complete", { ...args, limit: 3 });
+		expect(complete.content).toEqual([{ type: "text", text: "a/keep-new.ts\nb/keep-middle.ts\na/keep-old.ts" }]);
+		expect(complete.details?.resultLimitReached).toBeUndefined();
+	});
+
 	it("applies each root's relative filter before deduplication", async () => {
 		mkdirSync(join(root, "src", "sub"), { recursive: true });
 		writeFileSync(join(root, "src", "sub", "file.ts"), "");

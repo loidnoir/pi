@@ -68,6 +68,7 @@ describe("incoming messages", { skip: !browserTests }, () => {
 	before(async () => {
 		fixture = await startFixture({ web: true });
 		browser = await Browser.start();
+		await browser.signIn(fixture.owner);
 		await browser.metrics(390, 844);
 	});
 	after(async () => {
@@ -201,6 +202,8 @@ describe("incoming messages", { skip: !browserTests }, () => {
 			await browser.evaluate<string>("document.querySelector('[data-from=agent] .incoming-line').textContent"),
 			/^helper · answered · /,
 		);
+		// The turns after it may have scrolled it under the header.
+		await browser.evaluate(`document.querySelector('[data-from=agent]').scrollIntoView({ block: "center" })`);
 		await browser.click("[data-from=agent] button.incoming-from");
 		await browser.wait(`location.pathname==='/s/${alpha}/c/${helper.conversationId}'`);
 		await browser.evaluate("history.back()");

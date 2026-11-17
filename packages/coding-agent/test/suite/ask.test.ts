@@ -11,7 +11,7 @@ import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
 import { createHarness, createTestUiContext, getMessageText, getToolResult, type Harness } from "./harness.ts";
 
 const fixtures: Harness[] = [];
-const panels: (Component & { render(width: number, maxHeight?: number): string[]; dispose?(): void })[] = [];
+const panels: (Component & { render(width: number, maxHeight?: number): readonly string[]; dispose?(): void })[] = [];
 const keys = new KeybindingsManager();
 const html =
 	'<form><p>Choose the deployment target.</p><fieldset><legend>Target</legend><label><input name="target" type="radio" value="preview" checked required>Preview</label><label><input name="target" type="radio" value="prod">Production</label></fieldset><label>Instances<input name="instances" type="number" required min="1" max="4"></label></form>';
@@ -30,6 +30,7 @@ afterEach(async () => {
 });
 
 async function fixture(mode: ExtensionMode = "tui") {
+	const sideEffect = vi.fn();
 	const harness = await createHarness({
 		extensionFactories: [
 			askExtension,
@@ -40,6 +41,7 @@ async function fixture(mode: ExtensionMode = "tui") {
 					description: "Records a side effect",
 					parameters: Type.Object({}),
 					async execute() {
+						sideEffect();
 						return { content: [{ type: "text", text: "SIDE_EFFECT_EXECUTED" }], details: {} };
 					},
 				});
@@ -68,6 +70,7 @@ async function fixture(mode: ExtensionMode = "tui") {
 	});
 	return {
 		harness,
+		sideEffect,
 		panel: async () => {
 			await vi.waitFor(() => expect(panels.length).toBe(1));
 			return panels[0];
@@ -152,13 +155,15 @@ describe("native clarification forms", () => {
 	});
 
 	it("Escape cancels the form and stops later tool calls in the same batch", async () => {
-		const { harness, panel } = await fixture();
+		const { harness, panel, sideEffect } = await fixture();
 		harness.setResponses([ask(html, true), fauxAssistantMessage("Must not continue")]);
 		const prompt = harness.session.prompt("Ask before acting");
 		const view = await panel();
 		view.handleInput?.("\x1b");
 		await prompt;
-		expect(harness.eventsOfType("tool_execution_start").map((event) => event.toolName)).toEqual(["ask"]);
+		expect(sideEffect).not.toHaveBeenCalled();
+		expect(getToolResult(harness, "side_effect").isError).toBe(true);
+		expect(getMessageText(getToolResult(harness, "side_effect"))).toBe("Operation aborted");
 		expect(harness.getPendingResponseCount()).toBe(1);
 		expect(getMessageText(getToolResult(harness, "ask"))).toContain("no answers were submitted");
 	});

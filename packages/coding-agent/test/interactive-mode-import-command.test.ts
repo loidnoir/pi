@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { SessionImportFileNotFoundError } from "../src/core/agent-session-runtime.ts";
+import type { MissingSessionCwdChoice } from "../src/core/session-cwd.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 
 type PathCommand = "/export" | "/import";
@@ -7,9 +8,13 @@ type PathCommand = "/export" | "/import";
 type InteractiveModePrototype = {
 	getPathCommandArgument(this: unknown, text: string, command: PathCommand): string | undefined;
 	handleImportCommand(this: ImportCommandContext, text: string): Promise<void>;
+	withModelDashboardClosed: ImportCommandContext["withModelDashboardClosed"];
 };
 
 type ImportCommandContext = {
+	modelDashboardSuspensions: number;
+	closeModelDashboard: () => Promise<void>;
+	withModelDashboardClosed<T>(action: () => Promise<T>): Promise<T>;
 	clearStatusIndicator: () => void;
 	runtimeHost: { importFromJsonl: (inputPath: string, cwdOverride?: string) => Promise<{ cancelled: boolean }> };
 	showError: (message: string) => void;
@@ -18,7 +23,7 @@ type ImportCommandContext = {
 	handleRuntimeSessionChange: () => Promise<void>;
 	renderCurrentSessionState: () => void;
 	handleFatalRuntimeError: (prefix: string, error: unknown) => Promise<never>;
-	promptForMissingSessionCwd: (error: unknown) => Promise<string | undefined>;
+	promptForMissingSessionCwd: (error: unknown) => Promise<MissingSessionCwdChoice | undefined>;
 	getPathCommandArgument: (text: string, command: PathCommand) => string | undefined;
 };
 
@@ -69,6 +74,9 @@ describe("InteractiveMode /import parsing", () => {
 			}),
 			promptForMissingSessionCwd: vi.fn(async () => undefined),
 			getPathCommandArgument: interactiveModePrototype.getPathCommandArgument,
+			modelDashboardSuspensions: 0,
+			closeModelDashboard: vi.fn(async () => {}),
+			withModelDashboardClosed: interactiveModePrototype.withModelDashboardClosed,
 		};
 
 		await interactiveModePrototype.handleImportCommand.call(context, '/import "path/to/session.jsonl"');
@@ -101,6 +109,9 @@ describe("InteractiveMode /import parsing", () => {
 			}),
 			promptForMissingSessionCwd: vi.fn(async () => undefined),
 			getPathCommandArgument: interactiveModePrototype.getPathCommandArgument,
+			modelDashboardSuspensions: 0,
+			closeModelDashboard: vi.fn(async () => {}),
+			withModelDashboardClosed: interactiveModePrototype.withModelDashboardClosed,
 		};
 
 		await interactiveModePrototype.handleImportCommand.call(context, "/import john's/session.jsonl");
@@ -132,6 +143,9 @@ describe("InteractiveMode /import parsing", () => {
 			handleFatalRuntimeError,
 			promptForMissingSessionCwd: vi.fn(async () => undefined),
 			getPathCommandArgument: interactiveModePrototype.getPathCommandArgument,
+			modelDashboardSuspensions: 0,
+			closeModelDashboard: vi.fn(async () => {}),
+			withModelDashboardClosed: interactiveModePrototype.withModelDashboardClosed,
 		};
 
 		await interactiveModePrototype.handleImportCommand.call(context, "/import /tmp/missing-session.jsonl");

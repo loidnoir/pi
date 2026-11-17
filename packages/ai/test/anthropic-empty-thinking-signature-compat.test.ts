@@ -109,6 +109,7 @@ describe("Anthropic empty thinking signature compat", () => {
 	it.each(getModels("fireworks").filter((model) => hasApi(model, "anthropic-messages")))(
 		"preserves unsigned thinking for Fireworks $id",
 		async (model) => {
+			expect(model.compat?.allowEmptySignature).toBe(true);
 			const context = makeContext("", "internal reasoning", "fireworks", model.id);
 			const assistant = context.messages[1] as AssistantMessage;
 			assistant.content.push({ type: "text", text: "answer" });

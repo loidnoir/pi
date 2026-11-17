@@ -139,7 +139,7 @@ export class PromptContentPreview implements Focusable {
 		if (state.kind === "paste" && this.tui.terminal.rows < 8) return state.editor.render(width);
 		const height = Math.max(1, Math.floor(this.tui.terminal.rows * 0.8) - 4);
 		let title: string;
-		let body: string[];
+		let body: readonly string[];
 		let hint: string;
 		if (state.kind === "choose") {
 			title = "Prompt content";

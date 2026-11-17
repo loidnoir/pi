@@ -55,9 +55,29 @@ const EDGE = 2;
 /** Whether the browser keeps the reader's place when content above them changes (CSS scroll anchoring). */
 const NATIVE_ANCHORING = typeof CSS !== "undefined" && CSS.supports("overflow-anchor", "auto");
 
+/** The transcripts gliding (`TranscriptScroll.#glide`), by scroller: their messages, drawn lower for a moment. */
+const gliding = new WeakMap<HTMLElement, HTMLElement>();
+
+/**
+ * Where the content ends. The browser counts a gliding transcript, drawn lower, as content below the end: scrolled
+ * there, the transcript would jump down at the next layout as the glide ends (the browser clamps the scroll position).
+ */
+function contentHeight(element: HTMLElement): number {
+	const messages = gliding.get(element);
+	if (!messages) return element.scrollHeight;
+	const shift = new DOMMatrixReadOnly(getComputedStyle(messages).transform).m42;
+	const bottom =
+		messages.getBoundingClientRect().bottom -
+		shift -
+		element.getBoundingClientRect().top +
+		element.scrollTop +
+		Number.parseFloat(getComputedStyle(element).paddingBottom);
+	return Math.max(element.clientHeight, Math.min(element.scrollHeight, Math.ceil(bottom)));
+}
+
 /** How far the viewport is from the bottom. */
 function fromEnd(element: HTMLElement): number {
-	return element.scrollHeight - element.clientHeight - element.scrollTop;
+	return contentHeight(element) - element.clientHeight - element.scrollTop;
 }
 
 /** How far the viewport is from the top. */
@@ -74,7 +94,7 @@ function isBottom(element: HTMLElement): boolean {
  * momentum on it, and a streaming answer resizes the transcript many times a second.
  */
 function toEnd(element: HTMLElement): void {
-	if (fromEnd(element) >= 1) element.scrollTop = element.scrollHeight;
+	if (fromEnd(element) >= 1) element.scrollTop = contentHeight(element) - element.clientHeight;
 }
 
 /** Mounted transcripts, so a search hit or a quoted message can be revealed wherever it is shown. */
@@ -204,8 +224,12 @@ export class TranscriptScroll {
 		}
 		this.#applyHold();
 		const appended = this.#appended();
+		const before = this.#scroller?.scrollTop ?? 0;
 		this.#sync();
-		if (appended > 0) this.#glide(appended);
+		// The glide shows how far the new rows pushed the transcript up: none while it fits the viewport, and none when
+		// they took space another row gave up (an answer taking the place of its wheel's thought, ThoughtSlot.tsx).
+		const pushed = Math.min(appended, (this.#scroller?.scrollTop ?? 0) - before);
+		if (pushed > 0) this.#glide(pushed);
 	}
 
 	/**
@@ -233,10 +257,19 @@ export class TranscriptScroll {
 		if (!messages || typeof messages.animate !== "function") return;
 		if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 		const from = Math.min(height, this.#viewport || height);
-		this.#gliding = messages.animate([{ transform: `translateY(${from}px)` }, { transform: "translateY(0)" }], {
+		const glide = messages.animate([{ transform: `translateY(${from}px)` }, { transform: "translateY(0)" }], {
 			duration: 320,
 			easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
 		});
+		this.#gliding = glide;
+		const scroller = this.#scroller;
+		if (!scroller) return;
+		gliding.set(scroller, messages);
+		const ended = () => {
+			if (this.#gliding === glide || !this.#gliding) gliding.delete(scroller);
+		};
+		glide.addEventListener("finish", ended);
+		glide.addEventListener("cancel", ended);
 	}
 
 	/**
@@ -382,7 +415,7 @@ export class TranscriptScroll {
 		else {
 			this.#following = true;
 			this.#gesture.wheel();
-			element.scrollTo({ top: element.scrollHeight, behavior: "smooth" });
+			element.scrollTo({ top: contentHeight(element) - element.clientHeight, behavior: "smooth" });
 		}
 	};
 
@@ -689,8 +722,12 @@ export class TranscriptScroll {
 		this.#gesture.scrolled();
 		const top = scroller.scrollTop;
 		const down = top > this.#lastScrollTop;
+		// The browser moving the position up by a pixel without the reader is a clamp (the content's end came up by a
+		// rounding difference, as when a glide ends), not the reader leaving the bottom: by the time its event arrives,
+		// content may have grown again (a thought streaming in), so it would read as a move away from the bottom.
+		const clamped = !down && !this.#gesture.active && this.#lastScrollTop - top < 2;
 		this.#lastScrollTop = top;
-		const bottom = isBottom(scroller);
+		const bottom = isBottom(scroller) || clamped;
 		// Pi Mobile's rule: reaching the bottom while scrolling down follows the answer; anything else stops.
 		if (!this.#target && !this.#following) this.pinned = bottom ? this.pinned || down : this.pinned && down;
 		// A held correction pushes its amount of content past an edge, out of reach: a reader scrolling into that

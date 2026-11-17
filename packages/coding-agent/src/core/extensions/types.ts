@@ -233,8 +233,8 @@ export interface ExtensionUIContext {
 			keybindings: KeybindingsManager,
 			done: (result: T) => void,
 		) =>
-			| (Component & { render(width: number, maxHeight?: number): string[]; dispose?(): void })
-			| Promise<Component & { render(width: number, maxHeight?: number): string[]; dispose?(): void }>,
+			| (Component & { render(width: number, maxHeight?: number): readonly string[]; dispose?(): void })
+			| Promise<Component & { render(width: number, maxHeight?: number): readonly string[]; dispose?(): void }>,
 		options?: {
 			overlay?: boolean;
 			/**
@@ -2231,6 +2231,11 @@ export interface ExtensionRuntimeState {
 	invalidate: (message?: string) => void;
 	/** Retain an event-bus subscription until this runtime is invalidated. */
 	trackEventBusSubscription: (unsubscribe: () => void) => () => void;
+	/**
+	 * Report an error thrown by a `pi.events` handler. Dropped before the runner exists; the runner
+	 * replaces this to call its emitError() until the runner is invalidated.
+	 */
+	reportError: (error: ExtensionError) => void;
 	/**
 	 * Register or unregister a provider.
 	 *

@@ -57,7 +57,7 @@ export class CopySelectorComponent extends Container {
 		this.addChild(new DynamicBorder());
 	}
 
-	override render(width: number): string[] {
+	override render(width: number): readonly string[] {
 		const selected = this.selectList.getSelectedItem();
 		if (selected) {
 			const lines = stripAnsi(this.items[Number(selected.value)].text).split("\n", 5);

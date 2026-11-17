@@ -3,6 +3,7 @@
 // label with the guest "unverified name" note, peer attribution, reply quote, plugin note, files and image count.
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { Box, Container, Markdown, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
+import { plainReferences } from "../../runtime/references.ts";
 import type { TuiSettings } from "../../runtime/tui-preferences.ts";
 import { createMarkdownTransform, type MarkdownTransformer } from "../../runtime/tui-renderers.ts";
 import type { Item } from "../../web/transcript.ts";
@@ -39,7 +40,7 @@ abstract class Themed extends Container {
 		this.themeVersion = ctx.theme.version;
 	}
 	protected abstract rebuild(): void;
-	override render(width: number): string[] {
+	override render(width: number): readonly string[] {
 		if (this.themeVersion !== this.ctx.theme.version) {
 			this.themeVersion = this.ctx.theme.version;
 			this.rebuild();
@@ -84,7 +85,8 @@ export class UserMessageComponent extends Themed {
 		const bg = (text: string) => theme.bg("userMessageBg", text);
 		const markdown = (paddingY: number) =>
 			new Markdown(
-				safeText(item.text),
+				// File references show as the files' names where the message placed them.
+				safeText(plainReferences(item.text)),
 				paddingY ? pad : 0,
 				paddingY,
 				this.ctx.theme.markdown,
@@ -124,7 +126,7 @@ export class UserMessageComponent extends Themed {
 		this.addChild(box);
 	}
 	override render(width: number): string[] {
-		return zone(super.render(width));
+		return zone([...super.render(width)]);
 	}
 }
 
@@ -162,7 +164,7 @@ export class AssistantMessageComponent extends Themed {
 	}
 
 	override render(width: number): string[] {
-		const lines = super.render(width);
+		const lines = [...super.render(width)];
 		return this.hasToolCalls ? lines : zone(lines);
 	}
 

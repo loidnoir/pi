@@ -4034,6 +4034,37 @@ describe("Editor component", () => {
 			assert.strictEqual(submitted, pasteC + pasteB);
 		});
 
+		// Regression test for #11923
+		it("keeps manually typed short paste markers literal with or without cleared registered pastes", () => {
+			for (const clearRegisteredPastes of [false, true]) {
+				const editor = new Editor(createTestTUI(), defaultEditorTheme);
+				let submitted = "";
+				editor.onSubmit = (text) => {
+					submitted = text;
+				};
+				if (clearRegisteredPastes) {
+					editor.handleInput(`\x1b[200~${bigPaste("alpha")}\x1b[201~`);
+					editor.handleInput(`\x1b[200~${bigPaste("beta")}\x1b[201~`);
+					editor.handleInput("\x15");
+					assert.strictEqual(editor.getText(), "");
+				}
+
+				const literal = "[paste #1][paste #2]";
+				for (const character of literal) editor.handleInput(character);
+				assert.strictEqual(editor.getExpandedText(), literal);
+				assert.deepStrictEqual(editor.getContentItems(), []);
+				assert.strictEqual(editor.getContentAtCursor(), undefined);
+				editor.handleInput("\x1b[D");
+				assert.deepStrictEqual(editor.getCursor(), { line: 0, col: literal.length - 1 });
+				editor.handleInput("\x7f");
+				assert.strictEqual(editor.getText(), "[paste #1][paste #]");
+				editor.handleInput("\x1b[45;5u");
+				assert.strictEqual(editor.getText(), literal);
+				editor.handleInput("\r");
+				assert.strictEqual(submitted, literal);
+			}
+		});
+
 		it("undo after setText restores paste markers and registry", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 			let submitted = "";

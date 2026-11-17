@@ -33,13 +33,14 @@ import { safeText } from "../../src/tui/render-context.ts";
 import { restoreRuntime, snapshotRuntime } from "../../src/tui/snapshot.ts";
 import { ThemeRef } from "../../src/tui/theme/ref.ts";
 import { BUILTIN_THEMES, createTheme } from "../../src/tui/theme/theme.ts";
-import { BUILTIN_TOOL_RENDERERS } from "../../src/tui/tools/index.ts";
 import { buildTranscript, type ToolView } from "../../src/web/transcript.ts";
+import { PLUGIN_TUI_RENDERERS } from "../fixtures/tui-tools.ts";
 import { wholeView } from "../fixtures/whole-view.ts";
 import { type Cell, holdIn, poll, startFixture } from "./helpers.ts";
 import { SESSION, type Stub, sessionsStub, topology } from "./tui-fixture.ts";
 
-const plain = (lines: string[]): string => lines.map((line) => stripTerminalSequences(line).trimEnd()).join("\n");
+const plain = (lines: readonly string[]): string =>
+	lines.map((line) => stripTerminalSequences(line).trimEnd()).join("\n");
 const CTRL_C = "\x03";
 const CTRL_D = "\x04";
 const CTRL_END = "\x1b[1;5F";
@@ -92,7 +93,10 @@ test("pi's message components: Markdown, hidden thinking, error notices, sanitiz
 		{ type: "thinking", thinking: "private reasoning" },
 		{ type: "text", text: "**Answer** with `code`\x1b]52;c;evil\x07" },
 	]);
-	const hidden = plain(new AssistantMessageComponent(ctx(), message, true).render(60));
+	const hiddenComponent = new AssistantMessageComponent(ctx(), message, true);
+	const firstRender = [...hiddenComponent.render(60)];
+	const hidden = plain(firstRender);
+	assert.deepEqual(hiddenComponent.render(60), firstRender);
 	assert.match(hidden, /Answer with code/);
 	assert.match(hidden, /Thinking\.\.\./);
 	assert(!hidden.includes("private reasoning"));
@@ -131,7 +135,7 @@ test("tool cards: pi's bash, read, edit diff, generic fallback, code mode with n
 		...patch,
 	});
 	// bash: the newest 5 lines collapsed, everything expanded, the recorded duration.
-	const bash = new ToolExecutionComponent(tool({ durationMs: 1500 }), BUILTIN_TOOL_RENDERERS.bash, ctx());
+	const bash = new ToolExecutionComponent(tool({ durationMs: 1500 }), PLUGIN_TUI_RENDERERS.get("bash"), ctx());
 	const collapsed = plain(bash.render(60));
 	assert.match(collapsed, /\$ pwd/);
 	assert.match(collapsed, /10 earlier lines, ctrl\+o to expand/);
@@ -144,7 +148,7 @@ test("tool cards: pi's bash, read, edit diff, generic fallback, code mode with n
 	// A running call: pending background, elapsed clock; the card's timer stops on dispose.
 	const running = new ToolExecutionComponent(
 		tool({ status: "running", output: "partial" }),
-		BUILTIN_TOOL_RENDERERS.bash,
+		PLUGIN_TUI_RENDERERS.get("bash"),
 		ctx(),
 	);
 	assert.match(plain(running.render(60)), /partial[\s\S]*Elapsed/);
@@ -159,7 +163,7 @@ test("tool cards: pi's bash, read, edit diff, generic fallback, code mode with n
 	// read: path relative to the session cwd; content only when expanded.
 	const read = new ToolExecutionComponent(
 		tool({ name: "read", args: { path: "/work/src/a.ts", offset: 3, limit: 2 }, output: "const a = 1;" }),
-		BUILTIN_TOOL_RENDERERS.read,
+		PLUGIN_TUI_RENDERERS.get("read"),
 		ctx(),
 	);
 	assert.match(plain(read.render(80)), /read src\/a\.ts:3-4/);
@@ -175,7 +179,7 @@ test("tool cards: pi's bash, read, edit diff, generic fallback, code mode with n
 				output: "Successfully replaced 1 block(s) in a.ts.",
 				details: { diff: "-1 const a = 1;\n+1 const a = 2;" },
 			}),
-			BUILTIN_TOOL_RENDERERS.edit,
+			PLUGIN_TUI_RENDERERS.get("edit"),
 			ctx(),
 		).render(80),
 	);
@@ -202,7 +206,7 @@ test("tool cards: pi's bash, read, edit diff, generic fallback, code mode with n
 				},
 			],
 		}),
-		BUILTIN_TOOL_RENDERERS.codemode,
+		PLUGIN_TUI_RENDERERS.get("codemode"),
 		ctx(),
 	);
 	const live = plain(codemode.render(100));
@@ -224,7 +228,7 @@ test("tool cards: pi's bash, read, edit diff, generic fallback, code mode with n
 	assert(!done.includes("Script completed"));
 	// Baked colors follow a theme swap (section 5.4).
 	const ref = theme();
-	const card = new ToolExecutionComponent(tool({}), BUILTIN_TOOL_RENDERERS.bash, ctx(ref));
+	const card = new ToolExecutionComponent(tool({}), PLUGIN_TUI_RENDERERS.get("bash"), ctx(ref));
 	const dark = card.render(60).join("\n");
 	ref.set(createTheme(BUILTIN_THEMES.light!, "truecolor"));
 	assert.notEqual(card.render(60).join("\n"), dark);
@@ -238,7 +242,9 @@ test("transcript: streaming answer becomes its entry in place, tool lifecycle, m
 			generation: { message: assistant([{ type: "text", text: "Work" }, call], { timestamp: 7 }) },
 		},
 	});
-	const component = transcriptComponent(buildTranscript(wholeView(streaming)), false, false);
+	const component = transcriptComponent(buildTranscript(wholeView(streaming)), false, false, {
+		renderers: PLUGIN_TUI_RENDERERS,
+	});
 	const first = plain(component.render(80));
 	assert.match(first, /hi[\s\S]*Work[\s\S]*\$ ls/);
 	const answer = entry(2, {
@@ -295,6 +301,7 @@ test("transcript: streaming answer becomes its entry in place, tool lifecycle, m
 		),
 		false,
 		false,
+		{ renderers: PLUGIN_TUI_RENDERERS },
 	);
 	assert.match(plain(interrupted.render(80)), /Not run: the answer was interrupted\./);
 	// Compaction failures are state notices.
@@ -302,6 +309,7 @@ test("transcript: streaming answer becomes its entry in place, tool lifecycle, m
 		buildTranscript(wholeView(viewOf([], { "pi.live": { compactionFailure: { taskId: 3, error: "too big" } } }))),
 		false,
 		false,
+		{ renderers: PLUGIN_TUI_RENDERERS },
 	);
 	assert.match(plain(failed.render(80)), /Compaction failed: too big/);
 });
