@@ -60,7 +60,13 @@ describe("subagent structured transcript view", () => {
 			cwd: process.cwd(),
 			offset: 2,
 			totalMessages: 3,
-			messages: [{ role: "user", content: "Second-page question", timestamp: 3 }],
+			messages: [
+				{
+					role: "user",
+					content: `Second-page question\n${Array.from({ length: 80 }, (_, i) => `history line ${i}`).join("\n")}`,
+					timestamp: 3,
+				},
+			],
 		};
 		let listener: ((event: SubagentEvent) => void) | undefined;
 		const unsubscribe = vi.fn();
@@ -100,13 +106,26 @@ describe("subagent structured transcript view", () => {
 		expect(transcript).toHaveBeenLastCalledWith(agent.id, 2);
 		expect(render()).toContain("Second-page question");
 		expect(render()).not.toContain("evidence.txt");
+		const firstScreen = render();
+		view.scrollBy(8);
+		const scrolled = render();
+		expect(scrolled).not.toContain("Second-page question");
+		expect(scrolled).toContain("history line 12");
+		view.handleInput("\x1b[B");
+		expect(render()).not.toBe(scrolled);
+		view.handleInput("\x1b[A");
+		expect(render()).toBe(scrolled);
 		listener?.({ id: agent.id, type: "message" });
+		expect(render()).toBe(scrolled);
 		expect(transcript).toHaveBeenLastCalledWith(agent.id, 2);
+		view.handleInput("\x1b[5~");
+		expect(render()).toBe(firstScreen);
 		view.handleInput("\x1b[5~");
 		expect(transcript).toHaveBeenLastCalledWith(agent.id, 0);
 		expect(render()).toContain("Exact child evidence");
 		view.handleInput("\x1b");
-		expect(render()).toContain("Sub-agents");
+		expect(render()).toContain("configured roles");
+		expect(render()).not.toContain("Sub-agents");
 		view.handleInput("\x1b");
 		expect(controls.close).toHaveBeenCalledOnce();
 		expect(cancel).not.toHaveBeenCalled();

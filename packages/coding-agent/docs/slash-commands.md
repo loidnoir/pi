@@ -10,8 +10,7 @@ Extensions, prompt templates, and skills can add commands. The command menu in P
 |---|---|
 | `/settings` | Open settings |
 | `/model [provider/model]` | Select a model |
-| `/thinking [level]` | Set the thinking level |
-| `/effort [level]` | Use the native thinking-level picker or set a model-supported level, equivalent to `/thinking` |
+| `/thinking [level]` | Open the thinking-level picker or set a level supported by the current model |
 | `/fast [on\|off\|status]` | Toggle or inspect Codex priority tier; higher usage when enabled |
 | `/scoped-models` | Configure the models used by interactive cycling |
 | `/login [provider]` | Add provider authentication |

@@ -9,7 +9,6 @@ const BUILTIN_ICONS = new Map<string, IconName>([
 	["model", "model"],
 	["tree", "tree"],
 	["thinking", "thinking"],
-	["effort", "thinking"],
 	["scoped-models", "model"],
 	["export", "export"],
 	["import", "import"],

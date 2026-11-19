@@ -27,13 +27,15 @@ describe("status indicators", () => {
 		expect(lines).toEqual([" ".repeat(20), " ".repeat(20)]);
 	});
 
-	it("keeps the top border unchanged unless the editor opts in", () => {
+	it("keeps the top border unchanged when the editor opts out", () => {
 		initTheme("dark");
 		const tui = {
 			requestRender: vi.fn(),
 			terminal: { rows: 10 },
 		} as unknown as TUI;
-		const editor = new CustomEditor(tui, getEditorTheme(), KeybindingsManager.create());
+		const editor = new CustomEditor(tui, getEditorTheme(), KeybindingsManager.create(), {
+			embedWorkingStatus: false,
+		});
 		const indicator = new WorkingStatusIndicator(tui, "Working");
 		editor.setWorkingStatusIndicator(indicator);
 
@@ -59,10 +61,30 @@ describe("status indicators", () => {
 		editor.setWorkingStatusIndicator(indicator);
 
 		const topBorder = editor.render(20)[0]!;
-		expect(stripAnsi(topBorder)).toBe("── ⠋ Working ───────");
+		expect(stripAnsi(topBorder)).toBe("─────── ⠋ Working ──");
 		expect(visibleWidth(topBorder)).toBe(20);
 		expect(topBorder.split(theme.getFgAnsi("thinkingHigh"))).toHaveLength(5);
 		indicator.dispose();
+	});
+
+	it("keeps the scroll count centered beside the right-aligned working indicator", () => {
+		initTheme("dark");
+		const tui = { requestRender: vi.fn(), terminal: { rows: 10 } } as unknown as TUI;
+		const editor = new CustomEditor(tui, getEditorTheme(), KeybindingsManager.create());
+		editor.setText("line\n".repeat(15));
+		const indicator = new WorkingStatusIndicator(tui, "Working", { frames: ["猫"] });
+		try {
+			const idle = stripAnsi(editor.render(60)[0]!);
+			editor.setWorkingStatusIndicator(indicator);
+			const border = stripAnsi(editor.render(60)[0]!);
+			expect(border.indexOf("↑")).toBeGreaterThan(0);
+			expect(border.indexOf("↑")).toBe(idle.indexOf("↑"));
+			expect(border).toMatch(/ 猫 Working ──$/);
+			expect(stripAnsi(editor.render(26)[0]!)).toMatch(/↑ \d+ more .* 猫 ──$/);
+			for (const width of [1, 2, 4, 10, 26, 60]) expect(visibleWidth(editor.render(width)[0]!)).toBe(width);
+		} finally {
+			indicator.dispose();
+		}
 	});
 
 	it("embeds compaction, summary, and retry labels within the border width", () => {

@@ -58,10 +58,20 @@ async function fixture() {
 	return { harness, tui, host, submit };
 }
 
-describe("native effort command", () => {
-	it("keeps max distinct from xhigh and shares the active level with /thinking", async () => {
+describe("native thinking command", () => {
+	it("offers thinking but not effort in the slash-command list", async () => {
+		const { host } = await fixture();
+		const suggestions = await host.createBaseAutocompleteProvider().getSuggestions(["/"], 0, 1, {
+			signal: new AbortController().signal,
+		});
+		const names = suggestions?.items.map((item) => item.value);
+		expect(names).toContain("thinking");
+		expect(names).not.toContain("effort");
+	});
+
+	it("keeps max distinct from xhigh", async () => {
 		const { harness, submit } = await fixture();
-		submit("/effort max");
+		submit("/thinking max");
 		await vi.waitFor(() => expect(harness.session.thinkingLevel).toBe("max"));
 		submit("/thinking xhigh");
 		await vi.waitFor(() => expect(harness.session.thinkingLevel).toBe("xhigh"));
@@ -72,9 +82,9 @@ describe("native effort command", () => {
 	it("rejects an unsupported level without silently clamping or changing the active level", async () => {
 		const { harness, submit } = await fixture();
 		harness.session.agent.state.model = { ...harness.getModel(), thinkingLevelMap: { max: null, xhigh: null } };
-		submit("/effort medium");
+		submit("/thinking medium");
 		await vi.waitFor(() => expect(harness.session.thinkingLevel).toBe("medium"));
-		submit("/effort max");
+		submit("/thinking max");
 		expect(harness.session.thinkingLevel).toBe("medium");
 		expect(harness.eventsOfType("turn_start")).toHaveLength(0);
 	});
@@ -82,12 +92,12 @@ describe("native effort command", () => {
 	it("opens the native picker and preserves its explicit save-as-default action", async () => {
 		const { harness, tui, submit } = await fixture();
 		harness.session.setThinkingLevel("medium", { persist: false });
-		submit("/effort");
+		submit("/thinking");
 		tui.getFocusedComponent()?.handleInput?.("\x1b[B");
 		tui.getFocusedComponent()?.handleInput?.("\r");
 		expect(harness.session.thinkingLevel).toBe("high");
 		expect(harness.settingsManager.getDefaultThinkingLevel()).toBe("low");
-		submit("/effort");
+		submit("/thinking");
 		tui.getFocusedComponent()?.handleInput?.("\x1b[A");
 		tui.getFocusedComponent()?.handleInput?.("\x13");
 		expect(harness.session.thinkingLevel).toBe("medium");
@@ -97,7 +107,7 @@ describe("native effort command", () => {
 	it("completes only levels supported by the current model", async () => {
 		const { harness, host } = await fixture();
 		const provider = host.createBaseAutocompleteProvider();
-		const line = "/effort ";
+		const line = "/thinking ";
 		const available = await provider.getSuggestions([line], 0, line.length, { signal: new AbortController().signal });
 		expect(available?.items.map((item) => item.value)).toContain("max");
 		harness.session.agent.state.model = { ...harness.getModel(), thinkingLevelMap: { max: null, xhigh: null } };

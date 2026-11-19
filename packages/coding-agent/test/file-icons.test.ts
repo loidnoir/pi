@@ -203,12 +203,44 @@ describe("file-type path icons", () => {
 			const component = tool(name, { pattern: "source" });
 			component.setExpanded(true);
 			component.updateResult(result);
-			expect(plain(component)).toContain(`\uf120  ${row}`);
+			expect(plain(component)).toContain(`└─ \uf120  ${row}`);
 			for (const width of [4, 8, 12, 30])
 				for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 			expect(result).toEqual(before);
 		},
 	);
+
+	test("keeps a wide grapheme when a list guide would crowd it out", () => {
+		setIconPreset("unicode");
+		const component = tool("ls");
+		component.updateResult({ content: [{ type: "text", text: "स्त्र.txt" }], isError: false });
+		expect(stripAnsi(component.render(7).join("\n"))).toContain("स्त्र");
+	});
+
+	test.each(["grep", "find", "ls"] as const)("hangs wrapped %s labels under their paths", (name) => {
+		const component = tool(name);
+		const paths = ["日本語123456789 first.sh", "日本語123456789 final.ts"];
+		const rows = paths.map((path) => (name === "grep" ? `${path}:1: x` : path));
+		component.updateResult({ content: [{ type: "text", text: rows.join("\n") }], isError: false });
+		for (const preset of ["nerd", "unicode"] as const) {
+			setIconPreset(preset);
+			component.invalidate();
+			const lines = component.render(26).map((line) => stripAnsi(line).trimEnd());
+			for (const [index, path] of paths.entries()) {
+				const branch = index === 0 ? "├─ " : "└─ ";
+				const prefix = branch + fileIconPrefix(path);
+				const start = lines.findIndex((line) => line.trimStart().startsWith(`${prefix}日本語`));
+				expect(start).toBeGreaterThanOrEqual(0);
+				const margin = lines[start].slice(0, lines[start].indexOf(branch));
+				expect(lines[start + 1]).toBe(
+					margin +
+						(index === 0 ? "│" : " ") +
+						" ".repeat(visibleWidth(prefix) - 1) +
+						rows[index].split(" ").slice(1).join(" "),
+				);
+			}
+		}
+	});
 
 	test.each([":", "-"])("decorates grep %s rows only at the filename prefix", (separator) => {
 		const path = "packages/my file:part.test.ts";
@@ -252,7 +284,7 @@ describe("file-type path icons", () => {
 			isError: false,
 		});
 		const rendered = plain(component);
-		expect(rendered).toContain(`\ue7ba ${row}`);
+		expect(rendered).toContain(`└─ \ue7ba ${row}`);
 		expect(
 			rendered
 				.split("\n")
@@ -297,14 +329,16 @@ describe("file-type path icons", () => {
 			const output = `${artifact}\nsrc/\nmy file:part.ts\n[bracket].md\nLICENSE\nartifact://session/file.ts\n\n${notice}`;
 			const component = tool(name);
 			component.setExpanded(true);
-			const result = { content: [{ type: "text", text: output }], isError: false };
+			const details = name === "find" ? { resultLimitReached: 20 } : { entryLimitReached: 20 };
+			const result = { content: [{ type: "text", text: output }], details, isError: false };
 			component.updateResult(result);
 			const rendered = plain(component);
-			expect(rendered).toContain(`${icon("folder")} src/`);
+			expect(rendered).toContain(`├─ ${icon("folder")} src/`);
 			expect(rendered).toContain("\ue628 my file:part.ts");
 			expect(rendered).toContain("\ue73e [bracket].md");
-			expect(rendered).toContain("\uf15c LICENSE");
-			for (const line of [artifact, notice, "artifact://session/file.ts"]) {
+			expect(rendered).toContain("└─ \uf15c LICENSE");
+			const warning = `[Truncated: 20 ${name === "find" ? "results" : "entries"} limit]`;
+			for (const line of [artifact, notice, "artifact://session/file.ts", warning]) {
 				expect(
 					rendered
 						.split("\n")
@@ -349,10 +383,14 @@ describe("file-type path icons", () => {
 		).join("\n");
 		component.updateResult({ content: [{ type: "text", text: output }], isError: false });
 		const limit = name === "grep" ? 15 : 20;
-		expect(plain(component)).toContain(`${25 - limit} more lines`);
+		const compact = plain(component);
+		expect(compact).toContain(`${25 - limit} more lines`);
+		expect(compact.match(/├─ /gu)).toHaveLength(limit - 1);
+		expect(compact).toContain(`└─ \ue628 ${output.split("\n")[limit - 1]}`);
 		component.setExpanded(true);
 		expect(plain(component)).not.toContain("more lines");
-		expect(plain(component).match(/\ue628/g)).toHaveLength(25);
+		expect(plain(component).match(/├─ \ue628 /gu)).toHaveLength(24);
+		expect(plain(component)).toContain(`└─ \ue628 ${output.split("\n")[24]}`);
 		for (const line of component.render(30)) expect(visibleWidth(line)).toBeLessThanOrEqual(30);
 	});
 

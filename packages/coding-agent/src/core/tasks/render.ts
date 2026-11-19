@@ -111,13 +111,14 @@ function taskParts(task: Task, theme: Theme, context = ""): { prefix: string; la
 	return { prefix, label: styled };
 }
 
-/** Render the shared TODO root and nested task progress header. */
-export function taskTreeHeader(snapshot: TaskSnapshot, width: number, theme: Theme, hint = ""): string[] {
+export function taskTreeHeader(snapshot: TaskSnapshot, width: number, theme: Theme): string[] {
 	if (width <= 0) return [];
 	return [
-		theme.fg("accent", theme.bold("TODO")),
-		`${theme.fg("muted", "└─ ")}${theme.fg("accent", theme.bold("Tasks"))}${theme.fg("muted", ` · ${taskSummary(snapshot)}`)}${hint ? theme.fg("dim", ` · ${hint}`) : ""}`,
-	].map((line) => truncateToWidth(line, width));
+		truncateToWidth(
+			theme.fg("accent", theme.bold("Tasks")) + theme.fg("muted", ` · ${taskSummary(snapshot)}`),
+			width,
+		),
+	];
 }
 
 /** Lay out a valid forest in stable sibling order, with bounded guides and hanging labels. */
@@ -184,9 +185,10 @@ function renderTaskTree(
 		const markerWidth = visibleWidth(iconPrefix("checkboxUnchecked"));
 		// Reserve useful label space before spending terminal columns on ancestor guides.
 		const guideBudget = Math.max(0, width - markerWidth - 12);
-		const keptAncestors = Math.min(depth, Math.max(0, Math.floor((guideBudget - 6) / 3)));
-		const abbreviated = keptAncestors < depth;
-		let ancestors = guideBudget >= 6 ? (abbreviated ? " … " : "   ") : "";
+		const guideSlots = Math.max(0, Math.floor(guideBudget / 3) - 1);
+		const abbreviated = depth > guideSlots;
+		const keptAncestors = abbreviated ? Math.max(0, guideSlots - 1) : depth;
+		let ancestors = abbreviated && guideSlots > 0 ? " … " : "";
 		for (let index = depth - keptAncestors; index < depth; index++)
 			ancestors += frames[index].index < frames[index].tasks.length ? "│  " : "   ";
 		const branch = guideBudget >= 3 ? `${last ? "└" : "├"}─ ` : "";

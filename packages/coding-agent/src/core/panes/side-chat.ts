@@ -134,7 +134,7 @@ export class SideChatView implements PaneView, Focusable {
 			this.controls.invalidate();
 			return;
 		}
-		const match = /^\/(model|thinking|effort)(?:\s+([\s\S]*))?$/.exec(command);
+		const match = /^\/(model|thinking)(?:\s+([\s\S]*))?$/.exec(command);
 		if (match) {
 			if (match[1] === "model") this.showModelSelector(match[2]?.trim());
 			else if (!match[2]?.trim()) this.showThinkingSelector();

@@ -207,7 +207,7 @@ export function createJobsExtension(manager = new JobManager()): ExtensionFactor
 				observers.delete(id);
 				ctx.ui.setStatus(
 					"jobs",
-					observers.size ? `${observers.size} background job${observers.size === 1 ? "" : "s"}` : undefined,
+					observers.size ? `${observers.size} job${observers.size === 1 ? "" : "s"}` : undefined,
 				);
 			};
 			async function check() {
@@ -265,7 +265,7 @@ export function createJobsExtension(manager = new JobManager()): ExtensionFactor
 				clearInterval(health);
 				watch();
 			});
-			ctx.ui.setStatus("jobs", `${observers.size} background job${observers.size === 1 ? "" : "s"}`);
+			ctx.ui.setStatus("jobs", `${observers.size} job${observers.size === 1 ? "" : "s"}`);
 			void check();
 		}
 

@@ -36,6 +36,8 @@
 		"eval": "npm run eval --workspace=@earendil-works/pi-evals --",
 		"check:model-catalog": "node scripts/publish-model-catalog.mjs --input .artifacts/model-catalog --dry-run",
 		"check:model-catalog-compat": "node scripts/check-model-catalog-compat.mjs",
+		"chat:gallery": "node --import ./packages/coding-agent/src/experimental/source-resolver.ts packages/coding-agent/test/chat-gallery/preview.ts",
+		"chat:gallery:watch": "node --watch --import ./packages/coding-agent/src/experimental/source-resolver.ts packages/coding-agent/test/chat-gallery/preview.ts",
 		"profile:tui": "node scripts/profile-coding-agent-node.mjs --mode tui",
 		"profile:rpc": "node scripts/profile-coding-agent-node.mjs --mode rpc",
 		"test": "npm run test:scripts && npm run test --workspace packages --if-present",

@@ -7,6 +7,7 @@ import { createEditToolDefinition } from "../src/core/tools/edit.ts";
 import { computeEditsDiff, type Edit } from "../src/core/tools/edit-diff.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../src/utils/ansi.ts";
 
 class FakeTerminal implements Terminal {
 	columns = 80;
@@ -50,7 +51,7 @@ async function waitForRenderedText(
 	while (Date.now() < deadline) {
 		onRetry?.();
 		await waitForRender();
-		lastRender = getRender();
+		lastRender = stripAnsi(getRender());
 		if (lastRender.includes(expectedText)) {
 			return lastRender;
 		}
@@ -127,7 +128,15 @@ describe("edit tool TUI rendering", () => {
 		);
 		expect(callOnlyRender).toContain("edit");
 		expect(callOnlyRender).toContain("line 950 changed");
+		expect(
+			component
+				.render(140)
+				.map(stripAnsi)
+				.find((row) => row.includes("line 50 changed")),
+		).toMatch(/line 50.*│.*line 50 changed/);
+		expect(component.render(60).join("\n")).not.toContain("│");
 
+		tui.renderNow();
 		const redrawsBeforeResult = tui.fullRedraws;
 		const clearsBeforeResult = terminal.fullClearCount;
 		component.updateResult(
@@ -138,13 +147,12 @@ describe("edit tool TUI rendering", () => {
 			},
 			false,
 		);
-		tui.requestRender();
-		await waitForRender();
+		tui.renderNow();
 
 		expect(tui.fullRedraws).toBe(redrawsBeforeResult);
 		expect(terminal.fullClearCount).toBe(clearsBeforeResult);
 
-		const settledRender = component.render(80).join("\n");
+		const settledRender = stripAnsi(component.render(80).join("\n"));
 		expect(settledRender).toContain("line 50 changed");
 		expect(settledRender).toContain("line 950 changed");
 		expect(settledRender).not.toContain("Successfully replaced");
@@ -194,9 +202,15 @@ describe("edit tool TUI rendering", () => {
 		await waitForRender();
 		await waitForRender();
 
-		const rendered = component.render(80).join("\n");
+		const rendered = stripAnsi(component.render(80).join("\n"));
 		expect(rendered).toContain("line 50 changed");
 		expect(rendered).toContain("line 150 changed");
+		expect(
+			component
+				.render(140)
+				.map(stripAnsi)
+				.find((row) => row.includes("line 150 changed")),
+		).toMatch(/line 150.*│.*line 150 changed/);
 	});
 
 	it("shows a preflight error without rendering a diff when the edits do not apply", async () => {

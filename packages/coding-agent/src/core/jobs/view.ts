@@ -2,10 +2,13 @@
 import { type FSWatcher, mkdirSync, watch } from "node:fs";
 import { getKeybindings, Input, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { keyText } from "../../modes/interactive/components/keybinding-hints.ts";
+import { WorkingStatusIndicator } from "../../modes/interactive/components/status-indicator.ts";
+import { iconPrefix } from "../../modes/interactive/icons.ts";
 import { CodeHighlighter, theme } from "../../modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../utils/ansi.ts";
 import { sanitizeBinaryOutput } from "../../utils/shell.ts";
 import type { PaneControls, PaneView } from "../panes/host.ts";
+import { stateColor } from "./action-block.ts";
 import type { JobManager } from "./manager.ts";
 import type { JobInfo } from "./state.ts";
 
@@ -19,6 +22,7 @@ export class JobsView implements PaneView {
 	private readonly onSubmitted: (job: JobInfo) => void;
 	private jobs: JobInfo[] = [];
 	private selected = 0;
+	private displayedId: string | undefined;
 	private detail: string | undefined;
 	private detailJob: JobInfo | undefined;
 	private editing: Editing | undefined;
@@ -27,13 +31,17 @@ export class JobsView implements PaneView {
 	private readonly output = new Text("", 0, 0);
 	private readonly commandHighlighter = new CodeHighlighter();
 	private logTruncated = false;
-	private scroll = 0;
+	private outputStart: number | undefined;
+	private outputMax = 0;
+	private pageSize = 1;
 	private busy = false;
 	private disposed = false;
 	private refreshing = false;
 	private refreshAgain = false;
 	private refreshTimer: NodeJS.Timeout | undefined;
-	private readonly clock: NodeJS.Timeout;
+	private spinner: WorkingStatusIndicator | undefined;
+	private poll: NodeJS.Timeout | undefined;
+	private nextPoll = Date.now() + 2000;
 	private readonly rootWatcher: FSWatcher;
 	private readonly watches = new Map<string, () => void>();
 
@@ -57,16 +65,6 @@ export class JobsView implements PaneView {
 			this.error = error.message;
 			controls.invalidate();
 		});
-		let ticks = 0;
-		this.clock = setInterval(() => {
-			controls.invalidate();
-			const job = this.detail ? this.selectedJob() : undefined;
-			// A killed supervisor cannot publish a status-file event.
-			if (++ticks % 8 === 0 && (job ? isActiveJob(job) : this.jobs.some(isActiveJob))) {
-				this.scheduleRefresh();
-			}
-		}, 250);
-		this.clock.unref();
 		void this.refresh();
 	}
 
@@ -87,85 +85,148 @@ export class JobsView implements PaneView {
 		if (kb.matches(data, "tui.select.cancel")) {
 			if (this.detail) {
 				this.detail = undefined;
-				this.scroll = 0;
+				this.outputStart = undefined;
 				this.scheduleRefresh();
 			} else this.controls.close();
-		} else if (this.detail && kb.matches(data, "tui.select.pageUp")) this.scroll += 10;
-		else if (this.detail && kb.matches(data, "tui.select.pageDown")) this.scroll = Math.max(0, this.scroll - 10);
-		else if (!this.detail && kb.matches(data, "tui.select.up")) this.selected = Math.max(0, this.selected - 1);
-		else if (!this.detail && kb.matches(data, "tui.select.down"))
-			this.selected = Math.min(this.jobs.length - 1, this.selected + 1);
+			this.controls.invalidate();
+		} else if (kb.matches(data, "tui.select.up")) this.scrollBy(-1);
+		else if (kb.matches(data, "tui.select.down")) this.scrollBy(1);
+		else if (kb.matches(data, "tui.select.pageUp")) this.scrollBy(-this.pageSize);
+		else if (kb.matches(data, "tui.select.pageDown")) this.scrollBy(this.pageSize);
 		else {
 			const job = this.selectedJob();
 			if (!job || this.busy) return;
-			if (kb.matches(data, "tui.select.confirm")) {
+			if (!this.detail && kb.matches(data, "tui.select.confirm")) {
 				this.detail = job.id;
-				this.scroll = 0;
+				this.outputStart = undefined;
 				this.scheduleRefresh();
-			} else if (kb.matches(data, "app.jobs.stop")) void this.run(() => this.manager.stop(job.id));
+			} else if (job.id !== this.displayedId) return;
+			else if (kb.matches(data, "app.jobs.stop")) void this.run(() => this.manager.stop(job.id));
 			else if (kb.matches(data, "app.jobs.restart")) void this.run(() => this.restart(job.id));
 			else if (kb.matches(data, "app.jobs.delete")) void this.run(() => this.manager.remove(job.id));
 			else if (kb.matches(data, "app.jobs.rename")) this.edit(job, "rename");
 			else if (kb.matches(data, "app.jobs.editCommand")) this.edit(job, "command");
+			else return;
+			this.controls.invalidate();
 		}
+	}
+
+	scrollBy(lines: number): void {
+		if (this.editing || !lines) return;
+		if (this.detail) {
+			const start = Math.max(0, (this.outputStart ?? this.outputMax) + lines);
+			this.outputStart = start >= this.outputMax ? undefined : start;
+		} else this.selected = Math.max(0, Math.min(this.jobs.length - 1, this.selected + lines));
 		this.controls.invalidate();
 	}
 
 	render(width: number, height: number): string[] {
-		const lines: string[] = [];
-		const job = this.detail ? this.selectedJob() : undefined;
-		if (job) {
+		this.displayedId = width > 0 && height > 0 ? this.selectedJob()?.id : undefined;
+		if (width <= 0 || height <= 0) return [];
+		const controls = this.renderControls(width);
+		const footer = controls.slice(Math.max(0, controls.length - height + 1));
+		const room = height - footer.length;
+		const content = this.detail ? this.renderDetail(width, room) : this.renderList(width, room);
+		return [...content, ...footer].map((line) => truncateToWidth(line, width));
+	}
+
+	private renderList(width: number, height: number): string[] {
+		const lines =
+			height > 1
+				? [
+						theme.fg("accent", theme.bold(`${iconPrefix("job")}Jobs`)) +
+							theme.fg("muted", ` · ${singleLine(this.cwd, width)}`),
+					]
+				: [];
+		this.pageSize = height - lines.length;
+		const start = Math.max(0, this.selected - this.pageSize + 1);
+		const frame = this.spinner?.renderSpinnerInBorder(width);
+		for (let i = start; i < Math.min(this.jobs.length, start + this.pageSize); i++) {
+			const entry = this.jobs[i];
+			const selected = i === this.selected;
+			const running = isRunningJob(entry);
+			const prefix =
+				theme.fg("accent", selected ? "> " : "  ") +
+				theme.fg("muted", i === this.jobs.length - 1 ? "└─ " : "├─ ") +
+				(running && frame ? `${frame} ` : "");
+			const state = theme.fg(running ? "success" : stateColor(entry.runtime.state), entry.runtime.state);
+			const metrics =
+				width >= 50
+					? theme.fg(
+							"muted",
+							` · ${entry.id.slice(0, 8)} · ${duration(entry)}${entry.progress ? ` · ${entry.progress.percent}%` : ""}`,
+						)
+					: "";
+			const name = singleLine(entry.name, Math.max(5, width - visibleWidth(prefix + state + metrics) - 3));
 			lines.push(
-				theme.bold(singleLine(job.name, width)),
-				`${job.id}  ${job.runtime.state}  ${duration(job)}`,
-				progress(job, Math.min(30, Math.max(4, width - 10))),
+				prefix +
+					(selected ? theme.fg("accent", theme.bold(name)) : running ? theme.fg("success", name) : name) +
+					theme.fg("dim", " · ") +
+					state +
+					metrics,
 			);
-			const command = clean(job.command).replace(/\n/g, "\\n").replace(/\t/g, "   ");
-			lines.push(
-				truncateToWidth(`$ ${this.commandHighlighter.highlight(command, "bash")[0] ?? ""}`, width),
-				singleLine(`Directory: ${job.cwd}`, width),
-			);
-			if (job.progress?.message) lines.push(singleLine(job.progress.message, width));
-			if (job.progressError) lines.push(theme.fg("warning", singleLine(job.progressError, width)));
-			if (job.naming?.status === "failed")
-				lines.push(theme.fg("warning", singleLine(`Name generation failed: ${job.naming.error}`, width)));
-			if (job.runtime.state === "failed" || job.runtime.state === "lost" || job.runtime.state === "unreachable") {
-				if (job.runtime.error) lines.push(theme.fg("error", singleLine(job.runtime.error, width)));
-			}
-			lines.push("");
-			const output = this.output.render(width);
-			const available = Math.max(0, height - lines.length - 5);
-			this.scroll = Math.min(this.scroll, Math.max(0, output.length - available));
-			const end = Math.max(0, output.length - this.scroll);
-			if (available > 0)
-				lines.push(...output.slice(Math.max(0, end - available), end).map((line) => `${line}\x1b[0m`));
-			lines.push(
-				theme.fg("muted", `${this.logTruncated ? "Log tail; full output" : "Full output"}: ${clean(job.logPath)}`),
-			);
-		} else {
-			lines.push(theme.fg("muted", clean(this.cwd)));
-			if (this.jobs.length === 0) lines.push("No background jobs in this project. Start one with bash async:true.");
-			const available = Math.max(1, height - 5);
-			const start = Math.max(0, this.selected - available + 1);
-			for (let index = start; index < Math.min(this.jobs.length, start + available); index++) {
-				const entry = this.jobs[index];
-				const suffix = ` ${progress(entry, 10)} ${duration(entry)}`;
-				const summary = `${entry.runtime.state}${suffix}`;
-				const name = singleLine(entry.name, Math.max(0, width - visibleWidth(summary) - 13));
-				const prefix = `${index === this.selected ? ">" : " "} ${entry.id.slice(0, 8)} ${name}  `;
-				const row = `${prefix}${summary}`;
-				if (index === this.selected) {
-					lines.push(
-						isRunningJob(entry)
-							? theme.fg("accent", prefix) +
-									theme.fg("success", entry.runtime.state) +
-									theme.fg("accent", suffix)
-							: theme.fg("accent", row),
-					);
-				} else lines.push(isRunningJob(entry) ? theme.fg("success", row) : row);
-			}
 		}
-		if (this.error) lines.push(theme.fg("error", clean(this.error)));
+		if (!this.jobs.length)
+			lines.push(theme.fg("muted", "└─ No background jobs in this project. Start one with bash async:true."));
+		return lines;
+	}
+
+	private renderDetail(width: number, height: number): string[] {
+		const job = this.selectedJob();
+		if (!job) return [theme.fg("muted", "Loading job…")];
+		const frame = isRunningJob(job) ? this.spinner?.renderSpinnerInBorder(width) : undefined;
+		const prefix = (frame ? `${frame} ` : "") + theme.fg("accent", iconPrefix("job"));
+		const status = theme.fg(stateColor(job.runtime.state), job.runtime.state);
+		const metrics = width >= 36 ? ` · ${duration(job)}` : "";
+		const name = singleLine(job.name, Math.max(4, width - visibleWidth(prefix + status + metrics) - 3));
+		const header =
+			prefix + theme.fg("accent", theme.bold(name)) + theme.fg("dim", " · ") + status + theme.fg("muted", metrics);
+		const lines = height > 1 ? [header] : [];
+		const command = clean(job.command).replace(/\n/g, "\\n").replace(/\t/g, "   ");
+		const specs = [
+			theme.fg("accent", `${iconPrefix("terminal")}Command: `) +
+				(this.commandHighlighter.highlight(command, "bash")[0] ?? ""),
+			theme.fg("accent", `${iconPrefix("folder")}Directory: `) + singleLine(job.cwd, width),
+			theme.fg("muted", `${iconPrefix("info")}ID: ${job.id}`),
+		];
+		if (job.progress) {
+			const barWidth = Math.min(30, Math.max(0, width - 40));
+			const filled = Math.floor((job.progress.percent * barWidth) / 100);
+			const bar = barWidth ? `[${"=".repeat(filled)}${" ".repeat(barWidth - filled)}] ` : "";
+			specs.push(
+				`${theme.fg("accent", `${iconPrefix("tasks")}Progress: `)}${bar}${job.progress.percent}% ${singleLine(job.progress.message ?? "", width)}`,
+			);
+		}
+		if (job.progressError) specs.push(theme.fg("warning", singleLine(job.progressError, width)));
+		if (job.naming?.status === "failed")
+			specs.push(theme.fg("warning", singleLine(`Name generation failed: ${job.naming.error}`, width)));
+		if ("error" in job.runtime && job.runtime.error)
+			specs.push(theme.fg("error", singleLine(job.runtime.error, width)));
+		specs.push(
+			theme.fg("accent", `${iconPrefix("read")}${this.logTruncated ? "Log tail; full output" : "Full output"}: `) +
+				singleLine(job.logPath, width),
+		);
+		const intro = specs.map((line, index) => theme.fg("muted", index === specs.length - 1 ? "└─ " : "├─ ") + line);
+		intro.push("");
+		if (!lines.length) intro.unshift(header);
+		lines.push(...intro.splice(0, Math.max(0, height - lines.length - 2)));
+		this.pageSize = height - lines.length;
+		const output = this.detailJob?.id === job.id ? this.output.render(width) : [];
+		this.outputMax = Math.max(0, intro.length + output.length - this.pageSize);
+		if (this.outputStart !== undefined && this.outputStart >= this.outputMax) this.outputStart = undefined;
+		const start = this.outputStart ?? this.outputMax;
+		const end = start + this.pageSize;
+		return [
+			...lines,
+			...intro.slice(start, end),
+			...output
+				.slice(Math.max(0, start - intro.length), Math.max(0, end - intro.length))
+				.map((line) => `${line}\x1b[0m`),
+		];
+	}
+
+	private renderControls(width: number): string[] {
+		const lines: string[] = [];
 		if (this.editing) {
 			lines.push(
 				this.editing.type === "rename"
@@ -177,7 +238,7 @@ export class JobsView implements PaneView {
 			lines.push(
 				theme.fg(
 					"muted",
-					`${keyText("tui.select.confirm")} view · ${keyText("app.jobs.stop")} stop · ${keyText("app.jobs.restart")} restart · ${keyText("app.jobs.rename")} rename`,
+					`${this.detail ? `${keyText("tui.select.up")}/${keyText("tui.select.down")} scroll` : `${keyText("tui.select.confirm")} view`} · ${keyText("app.jobs.stop")} stop · ${keyText("app.jobs.restart")} restart · ${keyText("app.jobs.rename")} rename`,
 				),
 			);
 			lines.push(
@@ -187,12 +248,14 @@ export class JobsView implements PaneView {
 				),
 			);
 		}
-		return lines.slice(0, height);
+		if (this.error) lines.push(theme.fg("error", singleLine(this.error, width)));
+		return lines;
 	}
 
 	dispose(): void {
 		this.disposed = true;
-		clearInterval(this.clock);
+		this.spinner?.dispose();
+		clearInterval(this.poll);
 		clearTimeout(this.refreshTimer);
 		this.rootWatcher.close();
 		for (const stop of this.watches.values()) stop();
@@ -226,7 +289,10 @@ export class JobsView implements PaneView {
 	private async restart(id: string, command?: string): Promise<void> {
 		const next = await this.manager.restart(id, command);
 		this.onSubmitted(next);
-		if (!this.disposed) this.detail = next.id;
+		if (!this.disposed) {
+			this.detail = next.id;
+			this.outputStart = undefined;
+		}
 	}
 
 	private async run(action: () => Promise<unknown>) {
@@ -247,6 +313,32 @@ export class JobsView implements PaneView {
 	private selectedJob(): JobInfo | undefined {
 		if (!this.detail) return this.jobs[this.selected];
 		return this.detailJob?.id === this.detail ? this.detailJob : this.jobs.find((job) => job.id === this.detail);
+	}
+
+	private updateClock(jobs: JobInfo[]) {
+		if (jobs.some(isRunningJob)) {
+			this.spinner ??= new WorkingStatusIndicator(
+				{
+					requestRender: () => {
+						this.controls.invalidate();
+						if (Date.now() >= this.nextPoll) {
+							this.nextPoll = Date.now() + 2000;
+							this.scheduleRefresh();
+						}
+					},
+				},
+				"",
+			);
+		} else {
+			this.spinner?.dispose();
+			this.spinner = undefined;
+		}
+		if (!this.spinner && jobs.some(isActiveJob)) {
+			this.poll ??= setInterval(() => this.scheduleRefresh(), 2000).unref();
+		} else {
+			clearInterval(this.poll);
+			this.poll = undefined;
+		}
 	}
 
 	private scheduleRefresh() {
@@ -284,6 +376,11 @@ export class JobsView implements PaneView {
 				this.refreshAgain = true;
 				return;
 			}
+			if (detailJob && detailJob.id !== this.detailJob?.id) {
+				this.log = "";
+				this.output.setText("");
+				this.logTruncated = false;
+			}
 			this.detailJob = detailJob;
 			void this.controls
 				.setTitle(detailJob ? `Job ${detailJob.id.slice(0, 8)} — ${detailJob.name}` : "Background jobs")
@@ -299,6 +396,7 @@ export class JobsView implements PaneView {
 				const selected = this.jobs.findIndex((job) => job.id === selectedId);
 				this.selected = selected < 0 ? Math.max(0, Math.min(this.selected, jobs.length - 1)) : selected;
 			}
+			this.updateClock(jobs);
 			const wanted = new Set(
 				jobs
 					.filter(
@@ -393,14 +491,4 @@ function duration(job: JobInfo): string {
 			? runtime.endedAt
 			: Date.now();
 	return `${Math.max(0, (end - job.runtime.startedAt) / 1000).toFixed(1)}s`;
-}
-
-function progress(job: JobInfo, width: number): string {
-	if (job.progress) {
-		const count = Math.floor((job.progress.percent * width) / 100);
-		return `[${"=".repeat(count)}${" ".repeat(width - count)}] ${job.progress.percent}%`;
-	}
-	if (job.runtime.state !== "running" && job.runtime.state !== "starting") return "";
-	const at = Math.floor(Date.now() / 250) % width;
-	return `[${" ".repeat(at)}=${" ".repeat(width - at - 1)}]`;
 }

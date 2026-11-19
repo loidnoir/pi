@@ -1,8 +1,8 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Model, ModelsRefreshResult } from "@earendil-works/pi-ai";
-import { CURSOR_MARKER, setKeybindings, visibleWidth } from "@earendil-works/pi-tui";
+import type { Model } from "@earendil-works/pi-ai";
+import { setKeybindings, visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
+import { createModelDashboardOptions } from "../src/core/model-dashboard-controller.ts";
 import type { PaneControls } from "../src/core/panes/host.ts";
 import {
 	type ModelDashboardOptions,
@@ -10,31 +10,16 @@ import {
 	type ModelDashboardScope,
 	ModelDashboardView,
 } from "../src/core/panes/model-dashboard.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 import { createHarness, type Harness } from "./suite/harness.ts";
 
+const UP = "\x1b[A";
 const DOWN = "\x1b[B";
 const ENTER = "\r";
 const ESC = "\x1b";
-
-function text(view: ModelDashboardView, width = 160, height = 40): string {
-	return stripAnsi(view.render(width, height).join("\n"));
-}
-
-function choose(view: ModelDashboardView, label: string): void {
-	for (let step = 0; step < 20; step++) {
-		const selected = text(view)
-			.split("\n")
-			.find((line) => line.startsWith("→"));
-		if (selected?.slice(2).trimStart().startsWith(label)) {
-			view.handleInput(ENTER);
-			return;
-		}
-		view.handleInput(DOWN);
-	}
-	throw new Error(`No selected row matching ${label}: ${text(view)}`);
-}
+const TAB = "\t";
 
 describe("model dashboard", () => {
 	let harness: Harness;
@@ -43,20 +28,29 @@ describe("model dashboard", () => {
 	let options: ModelDashboardOptions;
 	let model: Model<string>;
 	let layers: Map<string, ModelDashboardOverrides>;
+	let controller: AbortController;
+
+	function keys(...input: string[]): void {
+		for (const key of input) view.handleInput(key);
+	}
+
+	function text(width = 160, height = 40): string {
+		return stripAnsi(view.render(width, height).join("\n"));
+	}
 
 	beforeAll(() => initTheme("dark"));
 	beforeEach(async () => {
-		setKeybindings(new KeybindingsManager());
+		setKeybindings(new KeybindingsManager({ "app.pane.minimize": "ctrl+g" }));
 		harness = await createHarness({
 			models: [
 				{ id: "alpha", reasoning: true },
 				{ id: "beta", reasoning: false },
 			],
 		});
-		// Match the selector tests: never refresh a real provider catalog.
 		vi.spyOn(harness.session.modelRuntime, "refresh").mockResolvedValue({ aborted: false, errors: new Map() });
 		model = harness.getModel("alpha")!;
 		layers = new Map();
+		controller = new AbortController();
 		controls = {
 			invalidate: vi.fn(),
 			close: vi.fn(),
@@ -65,310 +59,313 @@ describe("model dashboard", () => {
 		};
 		options = {
 			targets: [
-				{ id: "main", label: "Main thread", description: "The main conversation" },
+				{ id: "main", label: "Main thread" },
 				{ id: "btw", label: "BTW default" },
-				{ id: "reviewer", label: "Sub-agent: reviewer" },
 			],
 			modelRuntime: harness.session.modelRuntime,
 			scopedModels: [{ model: harness.getModel("beta")! }],
 			projectTrusted: true,
+			signal: controller.signal,
+			onClose: vi.fn(() => controller.abort()),
 			read: vi.fn((id: string, scope: ModelDashboardScope) => layers.get(`${id}/${scope}`) ?? {}),
 			resolve: vi.fn((_id: string, _scope: ModelDashboardScope, draft: ModelDashboardOverrides) => ({
 				model: draft.model ? harness.session.modelRuntime.getModel(draft.model.provider, draft.model.id) : model,
 				thinkingLevel: draft.thinkingLevel ?? "medium",
 				fastMode: draft.fastMode ?? false,
 			})),
-			save: vi.fn(async (id: string, scope: ModelDashboardScope, draft: ModelDashboardOverrides) => {
+			save: vi.fn(async (id, scope, draft) => {
 				layers.set(`${id}/${scope}`, draft);
 			}),
 		};
 		view = new ModelDashboardView(controls, options);
 	});
 	afterEach(async () => {
-		await view.dispose();
+		controller.abort();
+		await view.dispose().catch(() => {});
 		harness.cleanup();
 		vi.restoreAllMocks();
 	});
 
-	it("shows every supplied target using session-effective settings and read-only model metadata", () => {
-		expect(text(view)).toContain("Main thread");
-		expect(text(view)).toContain("BTW default");
-		expect(text(view)).toContain("Sub-agent: reviewer");
-		expect(options.resolve).toHaveBeenCalledWith("reviewer", "session", {});
-		choose(view, "Main thread");
-		expect(text(view)).toContain(`Effective: alpha [${model.provider}]`);
-		expect(text(view)).toContain("Context");
-		expect(text(view)).toContain("$/1M tokens: input");
-		expect(text(view)).toContain("Previewing selected scope draft");
-		expect(options.save).not.toHaveBeenCalled();
-	});
-
-	it("stages null, deletion and scope reset without touching stored overrides until Apply", async () => {
-		const stored = { thinkingLevel: "high" as ThinkingLevel, fastMode: false };
-		layers.set("btw/session", stored);
-		choose(view, "BTW default");
-		choose(view, "Thinking:");
-		choose(view, "Inherit main");
-		expect(text(view)).toContain("Thinking: inherit main");
-		expect(stored.thinkingLevel).toBe("high");
-		choose(view, "Apply");
-		await vi.waitFor(() => expect(text(view)).toContain("Applied session settings."));
-		expect(options.save).toHaveBeenLastCalledWith("btw", "session", { thinkingLevel: null, fastMode: false });
-		choose(view, "Thinking:");
-		choose(view, "Default / inherit");
-		choose(view, "Apply");
-		await vi.waitFor(() => expect(text(view)).toContain("Applied session settings."));
-		expect(options.save).toHaveBeenLastCalledWith("btw", "session", { fastMode: false });
-		choose(view, "Reset scope");
-		expect(text(view)).toContain("unsaved draft");
-		choose(view, "Apply");
-		await vi.waitFor(() => expect(options.save).toHaveBeenLastCalledWith("btw", "session", {}));
-	});
-
-	it("labels main null as a startup/default reset rather than main inheritance", async () => {
-		choose(view, "Main thread");
-		choose(view, "Thinking:");
-		choose(view, "Reset to startup/default");
-		expect(text(view)).toContain("Thinking: startup/default");
-		choose(view, "Apply");
-		await vi.waitFor(() => expect(options.save).toHaveBeenCalledWith("main", "session", { thinkingLevel: null }));
-	});
-
-	it("discards on Escape and keeps each target and scope isolated", () => {
-		choose(view, "Sub-agent: reviewer");
-		choose(view, "Save scope:");
-		choose(view, "Global");
-		choose(view, "Thinking:");
-		choose(view, "Inherit main");
-		choose(view, "Save scope:");
-		choose(view, "Session");
-		expect(text(view)).toContain("Apply or discard this draft");
-		view.handleInput(ESC);
-		view.handleInput(ESC);
-		expect(text(view)).toContain("Model dashboard");
-		choose(view, "BTW default");
-		expect(text(view)).toContain("Thinking: default");
-		expect(options.save).not.toHaveBeenCalled();
-	});
-
-	it("saves the chosen layer and rejects untrusted project scope", async () => {
-		choose(view, "Sub-agent: reviewer");
-		choose(view, "Save scope:");
-		choose(view, "Project");
-		expect(text(view)).toContain("Apply saves project defaults for future child launches.");
-		choose(view, "Apply");
-		await vi.waitFor(() => expect(options.save).toHaveBeenCalledWith("reviewer", "project", {}));
-		await view.dispose();
-		view = new ModelDashboardView(controls, { ...options, projectTrusted: false });
-		choose(view, "Main thread");
-		choose(view, "Save scope:");
-		choose(view, "Project");
-		expect(text(view)).toContain("Trust this project before saving");
-	});
-
-	it.each([
-		["Main thread", "Session", "Apply updates the current conversation."],
-		["Main thread", "Project", "Apply updates the current conversation and saves project defaults."],
-		["Main thread", "Global", "Apply updates the current conversation and saves global defaults."],
-		["BTW default", "Session", "Apply changes future BTW chats in this session."],
-		["BTW default", "Project", "Apply saves project defaults for future BTW chats."],
-		["BTW default", "Global", "Apply saves global defaults for future BTW chats."],
-		["Sub-agent: reviewer", "Session", "Apply changes future child launches in this session."],
-		["Sub-agent: reviewer", "Project", "Apply saves project defaults for future child launches."],
-		["Sub-agent: reviewer", "Global", "Apply saves global defaults for future child launches."],
-	])("describes %s at %s scope accurately", (target, scope, effect) => {
-		choose(view, target);
-		choose(view, "Save scope:");
-		expect(text(view)).toContain(effect);
-		choose(view, scope);
-		expect(text(view)).toContain(effect);
-		expect(text(view)).toContain("keep their settings.");
-	});
-
-	it("lets an unavailable saved model be replaced after Apply reports the missing model", async () => {
-		layers.set("main/session", { model: { provider: model.provider, id: "missing-model" } });
-		vi.mocked(options.save).mockImplementation(async (_id, _scope, draft) => {
-			if (draft.model && !options.modelRuntime.getModel(draft.model.provider, draft.model.id))
-				throw new Error("Saved model is unavailable; choose another model.");
+	it("previews inline choices and retains them across back, minimize and reopen until overview close", async () => {
+		vi.mocked(controls.close).mockImplementation(() => {
+			void view.dispose();
 		});
-		choose(view, "Main thread");
-		expect(text(view)).toContain("Effective: No model");
-		choose(view, "Apply");
-		await vi.waitFor(() => expect(text(view)).toContain("Saved model is unavailable"));
-		choose(view, "Model:");
-		choose(view, "Choose model");
-		view.handleInput(ENTER);
-		expect(text(view)).toContain(`Model: ${model.provider}/beta`);
-		choose(view, "Apply");
-		await vi.waitFor(() => expect(text(view)).toContain("Applied session settings."));
-		expect(options.save).toHaveBeenLastCalledWith("main", "session", {
+		keys(DOWN, ENTER, DOWN, TAB, ESC, "\x07");
+		expect(
+			text()
+				.split("\n")
+				.find((line) => line.includes("BTW default")),
+		).toContain("beta");
+		expect(controls.minimize).toHaveBeenCalledOnce();
+		keys(ENTER, DOWN, DOWN, TAB, ESC);
+		expect(options.save).not.toHaveBeenCalled();
+		expect(controls.close).not.toHaveBeenCalled();
+		keys(ESC);
+		await vi.waitFor(() => expect(controls.close).toHaveBeenCalledOnce());
+		expect(options.save).toHaveBeenCalledExactlyOnceWith("btw", "session", {
 			model: { provider: model.provider, id: "beta" },
+			thinkingLevel: "off",
+		});
+		await view.dispose();
+		expect(options.save).toHaveBeenCalledOnce();
+	});
+
+	it("saves main before dependent targets and wider scopes first, resuming only unsaved drafts after failure", async () => {
+		keys(DOWN, ENTER, DOWN, TAB, ESC);
+		keys(UP, ENTER, DOWN, TAB);
+		keys(UP, TAB, DOWN, TAB);
+		keys(UP, TAB, DOWN, TAB, ESC);
+		const pending = Promise.withResolvers<void>();
+		vi.mocked(options.save).mockReturnValueOnce(pending.promise).mockRejectedValueOnce(new Error("Storage full"));
+		keys(ESC, ESC, DOWN, TAB);
+		await vi.waitFor(() => expect(options.save).toHaveBeenCalledOnce());
+		expect(options.save).toHaveBeenNthCalledWith(1, "main", "global", expect.anything());
+		pending.resolve();
+		await vi.waitFor(() => expect(text(25, 1)).toContain("Storage full"));
+		expect(controls.close).not.toHaveBeenCalled();
+		keys(ESC);
+		await vi.waitFor(() => expect(controls.close).toHaveBeenCalledOnce());
+		expect(vi.mocked(options.save).mock.calls.map(([id, scope]) => `${id}/${scope}`)).toEqual([
+			"main/global",
+			"main/project",
+			"main/project",
+			"main/session",
+			"btw/session",
+		]);
+	});
+
+	it("preserves a model switched while minimized when only thinking was edited", async () => {
+		layers.set("main/session", { model: { provider: model.provider, id: "alpha" } });
+		keys(ENTER, DOWN, DOWN, TAB, "\x07");
+		const latest = { model: { provider: model.provider, id: "beta" }, fastMode: false };
+		layers.set("main/session", latest);
+		expect(text()).toContain(`${model.provider}/beta`);
+		keys(ESC, ESC);
+		await vi.waitFor(() => expect(controls.close).toHaveBeenCalledOnce());
+		expect(options.save).toHaveBeenCalledExactlyOnceWith("main", "session", { ...latest, thinkingLevel: "off" });
+	});
+
+	it("reads a half-inherited project model again after saving a wider model change", async () => {
+		await view.dispose();
+		controller = new AbortController();
+		const files = {
+			global: JSON.stringify({ defaultModel: "alpha", defaultProvider: model.provider }),
+			project: JSON.stringify({ defaultProvider: model.provider }),
+		};
+		const settings = SettingsManager.fromStorage({
+			withLock(scope, update) {
+				const next = update(files[scope]);
+				if (next !== undefined) files[scope] = next;
+			},
+		});
+		const live = createModelDashboardOptions(harness.session, settings, harness.tempDir, controller.signal);
+		view = new ModelDashboardView(controls, {
+			...live,
+			scopedModels: [{ model }, { model: harness.getModel("beta")! }],
+		});
+		keys(ENTER, TAB, DOWN, DOWN, TAB, UP, UP, TAB, DOWN, TAB, ESC, ESC);
+		await vi.waitFor(() => expect(controls.close).toHaveBeenCalledOnce());
+		expect(settings.getGlobalSettings().defaultModel).toBe("beta");
+		expect(settings.getProjectSettings()).toMatchObject({
+			defaultProvider: model.provider,
+			defaultThinkingLevel: "off",
+		});
+		expect(settings.getProjectSettings().defaultModel).toBeUndefined();
+		expect(harness.session.model?.id).toBe("beta");
+	});
+
+	it("previews session edits over the selection the pending wider main save will apply", () => {
+		layers.set("main/session", { model: { provider: model.provider, id: "alpha" } });
+		keys(ENTER, TAB, TAB, DOWN, TAB, UP, TAB, DOWN, DOWN, TAB, ESC);
+		expect(
+			text()
+				.split("\n")
+				.find((line) => line.includes("Main thread")),
+		).toContain("beta");
+	});
+
+	it("keeps a more specific session edit when a wider main save also changes the live selection", async () => {
+		await view.dispose();
+		controller = new AbortController();
+		harness.session.setThinkingLevel("medium");
+		const live = createModelDashboardOptions(
+			harness.session,
+			harness.settingsManager,
+			harness.tempDir,
+			controller.signal,
+		);
+		view = new ModelDashboardView(controls, live);
+		keys(ENTER, DOWN, DOWN, TAB, UP, UP, TAB, TAB, DOWN, DOWN, TAB, ESC, ESC);
+		await vi.waitFor(() => expect(controls.close).toHaveBeenCalledOnce());
+		expect(harness.settingsManager.getGlobalSettings().defaultThinkingLevel).toBe("off");
+		expect(harness.session.thinkingLevel).toBe("high");
+	});
+
+	it("reports a changed edited field without writing and allows a new selection", async () => {
+		keys(ENTER, DOWN, DOWN, TAB, ESC);
+		layers.set("main/session", { thinkingLevel: "high", fastMode: true });
+		keys(ESC);
+		await vi.waitFor(() => expect(text()).toContain("changed"));
+		expect(options.save).not.toHaveBeenCalled();
+		expect(controls.close).not.toHaveBeenCalled();
+		keys(ENTER, DOWN, DOWN, TAB, ESC, ESC);
+		await vi.waitFor(() => expect(controls.close).toHaveBeenCalledOnce());
+		expect(options.save).toHaveBeenCalledExactlyOnceWith("main", "session", {
+			thinkingLevel: "minimal",
+			fastMode: true,
 		});
 	});
 
-	it("reuses model search, scoped/all switching and refresh without saving the selection", async () => {
-		choose(view, "Main thread");
-		choose(view, "Model:");
-		choose(view, "Choose model");
-		expect(text(view)).toContain("Scope:");
-		expect(text(view)).toContain(CURSOR_MARKER);
-		view.focused = false;
-		expect(text(view)).not.toContain(CURSOR_MARKER);
-		view.focused = true;
-		view.handleInput("\t");
-		for (const char of "alpha") view.handleInput(char);
-		expect(text(view)).toContain("alpha");
-		view.handleInput(ENTER);
-		expect(text(view)).toContain(`Model: ${model.provider}/alpha`);
-		expect(options.modelRuntime.refresh).toHaveBeenCalled();
-		expect(options.save).not.toHaveBeenCalled();
-		choose(view, "Apply");
+	it("cycles supported thinking, explicit inheritance and field deletion without mutating the stored layer", async () => {
+		model = harness.getModel("beta")!;
+		const stored = { thinkingLevel: "off", fastMode: true } as const;
+		layers.set("btw/session", stored);
+		keys(DOWN, ENTER, DOWN, DOWN, TAB);
+		expect(text()).toContain("inherit main");
+		keys(TAB, DOWN, TAB);
+		expect(text()).toContain("Fast inactive");
+		expect(stored).toEqual({ thinkingLevel: "off", fastMode: true });
+		keys(ESC, ESC);
 		await vi.waitFor(() =>
-			expect(options.save).toHaveBeenCalledWith("main", "session", {
-				model: { provider: model.provider, id: "alpha" },
+			expect(options.save).toHaveBeenCalledExactlyOnceWith("btw", "session", { fastMode: false }),
+		);
+	});
+
+	it("offers on/off for Codex and skips untrusted project scope", async () => {
+		model = { ...model, provider: "openai-codex", api: "openai-codex-responses" };
+		options.projectTrusted = false;
+		keys(ENTER, TAB, UP, TAB);
+		expect(text()).toContain("higher usage");
+		expect(text()).toContain("not trusted");
+		keys(ESC, ESC);
+		await vi.waitFor(() =>
+			expect(options.save).toHaveBeenCalledExactlyOnceWith("main", "global", { fastMode: true }),
+		);
+	});
+
+	it("closes without writing when a full cycle returns to the saved model", async () => {
+		const alpha = harness.getModel("alpha")!;
+		const beta = harness.getModel("beta")!;
+		vi.spyOn(options.modelRuntime, "getAvailableSnapshot").mockReturnValue([alpha, beta]);
+		layers.set("main/session", { model: { id: beta.id, provider: beta.provider } });
+		keys(ENTER, DOWN, TAB);
+		expect(text()).toContain(`${alpha.provider}/${alpha.id}`);
+		keys(TAB);
+		expect(text()).toContain("startup/default");
+		keys(TAB, TAB, ESC, ESC);
+		await vi.waitFor(() => expect(controls.close).toHaveBeenCalledOnce());
+		expect(options.save).not.toHaveBeenCalled();
+	});
+
+	it("refreshes an empty catalog and includes newly configured models in the cycle", async () => {
+		const beta = harness.getModel("beta")!;
+		const snapshot = vi.spyOn(options.modelRuntime, "getAvailableSnapshot").mockReturnValue([]);
+		vi.mocked(options.modelRuntime.refresh).mockImplementationOnce(async () => {
+			snapshot.mockReturnValue([beta]);
+			return { errors: new Map(), aborted: false };
+		});
+		await view.dispose();
+		controller = new AbortController();
+		view = new ModelDashboardView(controls, { ...options, signal: controller.signal, scopedModels: [] });
+		await vi.waitFor(() => expect(controls.invalidate).toHaveBeenCalled());
+		keys(ENTER, DOWN, TAB, ESC, ESC);
+		await vi.waitFor(() =>
+			expect(options.save).toHaveBeenCalledExactlyOnceWith("main", "session", {
+				model: { provider: beta.provider, id: beta.id },
 			}),
 		);
 	});
 
-	it("shows only supported thinking levels and keeps selector cancel local", () => {
-		model = harness.getModel("beta")!;
-		choose(view, "Main thread");
-		choose(view, "Thinking:");
-		choose(view, "Choose thinking");
-		expect(text(view)).toContain("off");
-		expect(text(view)).not.toContain("Deep reasoning");
-		view.handleInput(ESC);
-		expect(text(view)).toContain("Choose thinking level");
-		choose(view, "Choose thinking");
-		view.handleInput(ENTER);
-		expect(text(view)).toContain("Thinking: off");
-		expect(options.save).not.toHaveBeenCalled();
+	it("previews the most specific staged main layer and passes only dirty layers to inherited targets", () => {
+		keys(ENTER, TAB, DOWN, TAB, UP, TAB, DOWN, TAB, ESC);
+		vi.mocked(options.resolve).mockClear();
+		text();
+		const [main, btw] = vi.mocked(options.resolve).mock.calls;
+		expect(main.slice(0, 2)).toEqual(["main", "project"]);
+		expect(btw.slice(0, 2)).toEqual(["btw", "session"]);
+		const pending = btw[3]!;
+		expect(pending("main", "session")).toBeUndefined();
+		expect(pending("btw", "session")).toBeUndefined();
+		expect(pending("main", "global")).toEqual({ model: { provider: model.provider, id: "beta" } });
 	});
 
-	it("limits fast selection to Codex responses and warns about higher usage", async () => {
-		choose(view, "Main thread");
-		choose(view, "Fast:");
-		expect(text(view)).toContain("Fast inactive");
-		choose(view, "Fast inactive");
-		expect(text(view)).toContain("Fast requires");
-		view.handleInput(ESC);
-		model = { ...model, provider: "openai-codex", api: "openai-codex-responses" };
-		choose(view, "Fast:");
-		expect(text(view)).toContain("higher usage");
-		choose(view, "On");
-		choose(view, "Apply");
-		await vi.waitFor(() => expect(options.save).toHaveBeenCalledWith("main", "session", { fastMode: true }));
-	});
-
-	it.each([
-		{ provider: "other-provider", api: "openai-codex-responses" },
-		{ provider: "openai-codex", api: "openai-responses" },
-	])("shows stale fast as inactive and allows Off, not On, for $provider/$api", async (unsupported) => {
-		model = { ...model, ...unsupported };
-		layers.set("main/session", { fastMode: true });
-		expect(text(view, 220)).toContain("fast inactive");
-		expect(text(view, 220)).not.toContain("fast on");
-		choose(view, "Main thread");
-		expect(text(view)).toContain("fast inactive (configured on; unsupported model)");
-		expect(text(view)).toContain("Fast: inactive (on)");
-		choose(view, "Fast:");
-		expect(text(view)).not.toMatch(/^\s*(?:→ )?On\b/m);
-		choose(view, "Off");
-		expect(text(view)).toContain("Fast: inactive (off)");
-		choose(view, "Apply");
-		await vi.waitFor(() => expect(options.save).toHaveBeenCalledWith("main", "session", { fastMode: false }));
-	});
-
-	it("uses configured navigation, Apply and minimize keys", async () => {
+	it("keeps the selected field reachable with configured navigation and shows warnings in clipped panes", () => {
 		setKeybindings(
 			new KeybindingsManager({
-				"tui.select.down": "ctrl+n",
+				"tui.select.up": "ctrl+p",
 				"tui.select.confirm": "ctrl+y",
-				"app.models.save": "ctrl+r",
-				"app.pane.minimize": "ctrl+g",
+				"tui.input.tab": "ctrl+r",
 			}),
 		);
-		view.handleInput("\x0e");
-		view.handleInput("\x19");
-		expect(text(view)).toContain("BTW default · session");
-		expect(text(view)).toContain("ctrl+r Apply");
-		view.handleInput("\x13");
-		expect(options.save).not.toHaveBeenCalled();
-		view.handleInput("\x12");
-		await vi.waitFor(() => expect(options.save).toHaveBeenCalledWith("btw", "session", {}));
-		view.handleInput("\x07");
-		expect(controls.minimize).toHaveBeenCalledOnce();
+		options.warning = "Profile configuration errors:\n\x1b[31mmissing role\x1b[0m";
+		keys("\x19", "\x10", "\x12");
+		expect(text(40, 3)).toContain("Fast:");
+		expect(text(48, 3)).toContain("Profile configuration errors: missing role");
+		for (const line of view.render(12, 2)) expect(visibleWidth(line)).toBeLessThanOrEqual(12);
+		expect(vi.mocked(options.save)).not.toHaveBeenCalled();
 	});
 
-	it("blocks duplicate saves and draft input while Apply is busy, then reports errors", async () => {
+	it("flushes the open editor on native disposal before signalling close, without duplicate saves", async () => {
+		keys(ENTER, DOWN, TAB);
 		const pending = Promise.withResolvers<void>();
 		vi.mocked(options.save).mockReturnValue(pending.promise);
-		choose(view, "Main thread");
-		choose(view, "Apply");
-		expect(text(view)).toContain("Applying…");
-		view.handleInput("\x13");
-		view.handleInput(ESC);
+		const disposal = Promise.all([view.dispose(), view.dispose()]);
+		await vi.waitFor(() => expect(options.save).toHaveBeenCalledOnce());
+		expect(controller.signal.aborted).toBe(false);
+		pending.resolve();
+		await disposal;
+		expect(options.onClose).toHaveBeenCalledOnce();
 		expect(controls.close).not.toHaveBeenCalled();
-		expect(options.save).toHaveBeenCalledOnce();
-		pending.reject(new Error("Could not persist settings"));
-		await vi.waitFor(() => expect(text(view)).toContain("Could not persist settings"));
-		expect(text(view, 35, 3)).toContain("Could not persist settings");
-		expect(text(view, 35, 1)).toContain("Could not persist settings");
 	});
 
-	it("clips narrow panes while keeping selection and selector search visible", () => {
-		choose(view, "Main thread");
-		for (const height of [1, 2, 4, 8]) {
-			for (const width of [1, 8, 24]) {
-				const lines = view.render(width, height);
-				expect(lines.length).toBeLessThanOrEqual(height);
-				expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-			}
-		}
-		choose(view, "Model:");
-		choose(view, "Choose model");
-		const small = text(view, 24, 3);
-		expect(small).toContain(CURSOR_MARKER);
-		expect(small).toContain("→");
-		expect(view.render(0, 3)).toEqual([]);
-	});
-
-	it("notifies close once before waiting for Apply and aborts selector refresh on disposal", async () => {
-		const onClose = vi.fn();
-		options.onClose = onClose;
-		const pending = Promise.withResolvers<void>();
-		vi.mocked(options.save).mockReturnValue(pending.promise);
-		choose(view, "Main thread");
-		choose(view, "Apply");
-		const disposal = view.dispose();
-		expect(onClose).toHaveBeenCalledOnce();
-		const repeatedDisposal = view.dispose();
-		expect(onClose).toHaveBeenCalledOnce();
-		let disposed = false;
-		void disposal.then(() => {
-			disposed = true;
-		});
-		vi.mocked(controls.invalidate).mockClear();
-		await Promise.resolve();
-		expect(disposed).toBe(false);
-		expect(controls.close).not.toHaveBeenCalled();
-		pending.reject(new Error("late"));
-		await Promise.all([disposal, repeatedDisposal]);
-		expect(onClose).toHaveBeenCalledOnce();
-		expect(disposed).toBe(true);
-		expect(controls.invalidate).not.toHaveBeenCalled();
-		view = new ModelDashboardView(controls, options);
-		const refresh = Promise.withResolvers<ModelsRefreshResult>();
-		vi.mocked(options.modelRuntime.refresh).mockReturnValue(refresh.promise);
-		choose(view, "Main thread");
-		choose(view, "Model:");
-		choose(view, "Choose model");
-		const signal = vi.mocked(options.modelRuntime.refresh).mock.calls.at(-1)?.[0]?.signal;
+	it("discards drafts on aborted disposal and never writes to the replaced session", async () => {
+		keys(ENTER, DOWN, TAB);
+		controller.abort();
+		keys(ESC, ESC);
 		await view.dispose();
-		vi.mocked(controls.invalidate).mockClear();
-		await vi.waitFor(() => expect(signal?.aborted).toBe(true));
-		refresh.resolve({ aborted: false, errors: new Map() });
-		await Promise.resolve();
-		expect(controls.invalidate).not.toHaveBeenCalled();
+		expect(options.save).not.toHaveBeenCalled();
+	});
+
+	it("stops an in-flight batch before touching another layer on runtime replacement", async () => {
+		const pending = Promise.withResolvers<void>();
+		vi.mocked(options.save).mockReturnValue(pending.promise);
+		keys(ENTER, DOWN, TAB, ESC, DOWN, ENTER, DOWN, TAB, ESC, ESC);
+		await vi.waitFor(() => expect(options.save).toHaveBeenCalledOnce());
+		controller.abort();
+		const disposal = view.dispose();
+		pending.resolve();
+		await disposal;
+		expect(options.save).toHaveBeenCalledOnce();
+		expect(controls.close).not.toHaveBeenCalled();
+	});
+
+	it("recovers only unsaved native-close drafts on reopening the same live session", async () => {
+		const recoveryKey = {};
+		options.recoveryKey = recoveryKey;
+		keys(ENTER, DOWN, TAB, ESC, DOWN, ENTER, DOWN, DOWN, TAB);
+		vi.mocked(options.save).mockResolvedValueOnce().mockRejectedValueOnce(new Error("Not persisted"));
+		await expect(view.dispose()).rejects.toThrow("Not persisted");
+		controller = new AbortController();
+		view = new ModelDashboardView(controls, { ...options, recoveryKey: {}, signal: controller.signal });
+		await view.dispose();
+		expect(options.save).toHaveBeenCalledTimes(2);
+		controller = new AbortController();
+		view = new ModelDashboardView(controls, { ...options, signal: controller.signal });
+		expect(text()).toContain("Not persisted");
+		keys(ESC);
+		await vi.waitFor(() => expect(controls.close).toHaveBeenCalledOnce());
+		expect(vi.mocked(options.save).mock.calls.map(([id]) => id)).toEqual(["main", "btw", "btw"]);
+	});
+
+	it("reports an interrupted close failure to the native host instead of retrying", async () => {
+		const pending = Promise.withResolvers<void>();
+		vi.mocked(options.save).mockReturnValue(pending.promise);
+		keys(ENTER, DOWN, TAB, ESC, ESC);
+		await vi.waitFor(() => expect(options.save).toHaveBeenCalledOnce());
+		const disposal = view.dispose();
+		pending.reject(new Error("Not persisted"));
+		await expect(disposal).rejects.toThrow("Not persisted");
+		expect(options.save).toHaveBeenCalledOnce();
+		expect(options.onClose).toHaveBeenCalledOnce();
 	});
 });

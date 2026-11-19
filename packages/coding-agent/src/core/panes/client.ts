@@ -1,7 +1,15 @@
 // Thin Rex terminal frontend: only frames and input cross the channel; no session transcript is saved.
 import { readFileSync, unlinkSync } from "node:fs";
 import { connect } from "node:net";
-import { ProcessTerminal, TuiAltScreen, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import {
+	backgroundAnsi,
+	ProcessTerminal,
+	rgbColor,
+	type TerminalColors,
+	TuiAltScreen,
+	type TuiMouseEvent,
+	truncateToWidth,
+} from "@earendil-works/pi-tui";
 import { Compile } from "typebox/compile";
 import { localProof, receivePackets, sendPacket, verifyLocalProof } from "../local-channel.ts";
 import { PaneCredentialsSchema, PaneOutputSchema } from "./protocol.ts";
@@ -19,6 +27,18 @@ export async function runPaneClient(credentialPath: string): Promise<void> {
 	const socket = connect({ host: "127.0.0.1", port: credentials.port });
 	socket.setNoDelay(true);
 	let lines: string[] = [];
+	let background = "";
+	const applyColors = (colors: TerminalColors) => {
+		const rgb = colors.background;
+		const next = rgb ? backgroundAnsi(rgbColor(rgb.r, rgb.g, rgb.b), "truecolor") : "";
+		if (background !== next) {
+			background = next;
+			ui.requestRender();
+		}
+	};
+	const refreshColors = () => {
+		void ui.queryTerminalColors({ timeoutMs: 500, onLateReply: applyColors }).then(applyColors);
+	};
 	let columns = 0;
 	let rows = 0;
 	let authenticated = false;
@@ -34,7 +54,13 @@ export async function runPaneClient(credentialPath: string): Promise<void> {
 				rows = nextRows;
 				sendPacket(socket, { type: "resize", columns, rows });
 			}
-			return lines;
+			if (!background) return lines;
+			return Array.from({ length: nextRows }, (_, row) => {
+				const line = lines[row] ?? "";
+				if (/\x1b(?!\[[\d;:]*m)/.test(line)) return line;
+				const padded = truncateToWidth(line, nextColumns, "", true);
+				return `${background}${padded.replace(/\x1b\[(?:0|49)?m/g, `$&${background}`)}\x1b[49m`;
+			});
 		},
 		handleInput(data: string) {
 			if (authenticated) sendPacket(socket, { type: "input", data });
@@ -80,10 +106,14 @@ export async function runPaneClient(credentialPath: string): Promise<void> {
 	process.once("SIGINT", onSignal);
 	ui.addChild(component);
 	ui.setFocus(component);
+	const unsubscribe = ui.onTerminalColorSchemeChange(refreshColors);
+	ui.setTerminalColorSchemeNotifications(true);
 	try {
 		ui.start();
+		refreshColors();
 		await closed.promise;
 	} finally {
+		unsubscribe();
 		process.removeListener("SIGTERM", onSignal);
 		process.removeListener("SIGHUP", onSignal);
 		process.removeListener("SIGINT", onSignal);

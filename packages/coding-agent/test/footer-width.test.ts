@@ -4,7 +4,7 @@ import type { AgentSession } from "../src/core/agent-session.ts";
 import type { ContextUsage } from "../src/core/extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.ts";
 import { FooterComponent, formatCwdForFooter } from "../src/modes/interactive/components/footer.ts";
-import { icon, setIconPreset } from "../src/modes/interactive/icons.ts";
+import { icon, iconPrefix, setIconPreset } from "../src/modes/interactive/icons.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
@@ -365,6 +365,25 @@ describe("FooterComponent single-line layout", () => {
 		expect(footer.render(120)[0]).toContain(theme.fg(color, `${percent.toFixed(1)}%/200k`));
 	});
 
+	it("separates job and agent counts and uses the current icon preset", () => {
+		const statuses = new Map([
+			["subagents", "2 agents"],
+			["jobs", "1 job"],
+		]);
+		const footer = new FooterComponent(createSession(), createFooterData(statuses));
+		for (const preset of ["unicode", "nerd"] as const) {
+			setIconPreset(preset);
+			expect(stripAnsi(footer.render(120)[0])).toContain(
+				`↓0 • ${iconPrefix("job")}1 job • ${iconPrefix("agent")}2 agents`,
+			);
+		}
+		statuses.delete("jobs");
+		expect(stripAnsi(footer.render(120)[0])).toContain(`↓0 • ${iconPrefix("agent")}2 agents`);
+		statuses.clear();
+		statuses.set("jobs", "\x1b[2m\x1b[0m");
+		expect(stripAnsi(footer.render(120)[0])).not.toContain("↓0 •");
+	});
+
 	it("sorts extension statuses by key and normalizes them without adding a row", () => {
 		const data = createFooterData(
 			new Map([
@@ -377,7 +396,7 @@ describe("FooterComponent single-line layout", () => {
 
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).not.toMatch(/[\r\n\t\u2028\u2029]/);
-		expect(stripAnsi(lines[0])).toContain("↑0 ↓0 first second third fourth fifth ready");
+		expect(stripAnsi(lines[0])).toContain("↑0 ↓0 • first second third fourth fifth • ready");
 		expect(lines[0]).toContain("\x1b[32mready\x1b[0m");
 		expect(stripAnsi(lines[0])).toMatch(/12\.3%\/200k • test-model$/);
 	});
@@ -391,7 +410,7 @@ describe("FooterComponent single-line layout", () => {
 
 		expect(lines).toHaveLength(1);
 		expect(visibleWidth(lines[0])).toBe(100);
-		expect(stripAnsi(lines[0])).toMatch(/^\/tmp\/project ↑0 ↓0 busy .*\.\.\. {2}12\.3%\/200k • test-model$/);
+		expect(stripAnsi(lines[0])).toMatch(/^\/tmp\/project ↑0 ↓0 • busy .*\.\.\. {2}12\.3%\/200k • test-model$/);
 	});
 
 	it("truncates long directories while keeping token counts and right-hand details", () => {

@@ -112,7 +112,7 @@ See [Compaction Reference](compaction.md) for thresholds, retained boundaries, b
 
 Use `/btw` to browse side chats belonging to this main thread, ordered by latest activity in pages of 20. Enter reopens the selected chat; PageUp/PageDown change pages. `/btw <question>` always starts a new side chat. Follow-up questions belong in its view.
 
-The side view has a bottom-anchored multiline prompt and a context/model/effort footer. `/model` and `/effort` (`/thinking`) open local pickers; the main model/effort shortcuts work too. Selections persist in the side chat without changing the main thread. Model and effort changes are blocked during active or queued work.
+The side view has a bottom-anchored multiline prompt and a context/model/effort footer. `/model` and `/thinking` open local pickers; the main model/effort shortcuts work too. Selections persist in the side chat without changing the main thread. Model and effort changes are blocked during active or queued work.
 
 Each side chat stores its own messages separately and references a fixed main-thread entry for inherited context. Reopening never pulls in later main messages. The main chat remains unchanged, and side chats do not appear in `/resume`. Both side chats and agent history use the main chat's message and tool rendering with distinct headers.
 

@@ -9,13 +9,13 @@ export type StatusIndicatorKind = "working" | "retry" | "compaction" | "branchSu
 
 export class StatusIndicator extends Loader {
 	readonly kind: StatusIndicatorKind;
-	private readonly statusUi: TUI;
+	private readonly statusUi: Pick<TUI, "requestRender">;
 	private readonly pauseColorFn: (text: string) => string;
 	private pauseStatus: "pausing" | "paused" | undefined;
 
 	constructor(
 		kind: StatusIndicatorKind,
-		ui: TUI,
+		ui: Pick<TUI, "requestRender">,
 		spinnerColorFn: (str: string) => string,
 		messageColorFn: (str: string) => string,
 		message: string,
@@ -66,7 +66,12 @@ export class StatusIndicator extends Loader {
 }
 
 export class WorkingStatusIndicator extends StatusIndicator {
-	constructor(ui: TUI, message: string, indicator?: WorkingIndicatorOptions, colorFn?: (text: string) => string) {
+	constructor(
+		ui: Pick<TUI, "requestRender">,
+		message: string,
+		indicator?: WorkingIndicatorOptions,
+		colorFn?: (text: string) => string,
+	) {
 		super(
 			"working",
 			ui,

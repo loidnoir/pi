@@ -1,6 +1,7 @@
 // Interactive role selection, child status, and paged history without adding view traffic to main chat.
 import { getKeybindings, Input, indexedColor, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { keyText } from "../../modes/interactive/components/keybinding-hints.ts";
+import { WorkingStatusIndicator } from "../../modes/interactive/components/status-indicator.ts";
 import { type IconName, icon, iconPrefix } from "../../modes/interactive/icons.ts";
 import { theme } from "../../modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../utils/ansi.ts";
@@ -27,6 +28,7 @@ export class SubagentsView implements PaneView {
 	private agents: SubagentInfo[] = [];
 	private catalog: AgentDefinitions = { agents: [], errors: [] };
 	private selected = 0;
+	private renderedSelection: string | undefined;
 	private roleSelection = 0;
 	private choosingRole = false;
 	private detail: string | undefined;
@@ -42,6 +44,7 @@ export class SubagentsView implements PaneView {
 	private disposed = false;
 	private rendered: string[] = [];
 	private viewportLines = 1;
+	private working: WorkingStatusIndicator | undefined;
 
 	constructor(manager: SubagentManager, controls: PaneControls, actions: SubagentsViewActions, id?: string) {
 		this.manager = manager;
@@ -51,23 +54,34 @@ export class SubagentsView implements PaneView {
 		try {
 			this.agents = manager.list();
 			this.catalog = actions.definitions();
-			if (id) this.readPage();
+			if (id) {
+				this.selected = Math.max(
+					0,
+					this.agents.findIndex((agent) => agent.id === id),
+				);
+				this.readPage();
+			}
 		} catch (error) {
 			this.error = String(error);
 		}
 		this.unsubscribe = manager.subscribe((event) => {
 			if (this.disposed || event.type === "progress") return;
+			const index = this.agents.findIndex((agent) => agent.id === event.id);
 			if (event.type === "deleted") {
-				this.agents = this.agents.filter((agent) => agent.id !== event.id);
+				if (index < 0) return;
+				this.agents.splice(index, 1);
+				if (index < this.selected) this.selected--;
+				else this.selected = Math.max(0, Math.min(this.selected, this.agents.length - 1));
 				if (this.detail === event.id) this.detail = undefined;
 				controls.invalidate();
 				return;
 			}
 			try {
 				const info = manager.inspect(event.id);
-				const index = this.agents.findIndex((agent) => agent.id === event.id);
-				if (index < 0) this.agents.unshift(info);
-				else this.agents[index] = info;
+				if (index < 0) {
+					if (this.agents.length) this.selected++;
+					this.agents.unshift(info);
+				} else this.agents[index] = info;
 				if (event.id === this.detail && this.page.nextOffset === undefined) this.readPage();
 			} catch (error) {
 				this.error = String(error);
@@ -79,6 +93,7 @@ export class SubagentsView implements PaneView {
 	handleInput(data: string): void {
 		const kb = getKeybindings();
 		if (kb.matches(data, "app.pane.minimize")) {
+			this.stopWorking();
 			void this.run(() => this.controls.minimize());
 			return;
 		}
@@ -102,35 +117,19 @@ export class SubagentsView implements PaneView {
 			} catch (error) {
 				this.error = String(error);
 			}
-		} else if (this.choosingRole) {
-			if (kb.matches(data, "tui.select.up")) this.roleSelection = Math.max(0, this.roleSelection - 1);
-			else if (kb.matches(data, "tui.select.down"))
-				this.roleSelection = Math.min(this.catalog.agents.length - 1, this.roleSelection + 1);
-			else if (kb.matches(data, "tui.select.confirm")) {
+		} else if (kb.matches(data, "tui.select.up")) this.move(-1);
+		else if (kb.matches(data, "tui.select.down")) this.move(1);
+		else if (kb.matches(data, "tui.select.pageUp")) this.move(-this.viewportLines);
+		else if (kb.matches(data, "tui.select.pageDown")) this.move(this.viewportLines);
+		else if (this.choosingRole) {
+			if (kb.matches(data, "tui.select.confirm")) {
 				const role = this.catalog.agents[this.roleSelection];
 				if (role) this.edit({ kind: "start", role: role.name });
 			}
 		} else if (this.detail && kb.matches(data, "app.tools.expand")) {
 			this.expanded = !this.expanded;
 			this.transcript?.setExpanded(this.expanded);
-		} else if (this.detail && kb.matches(data, "tui.select.pageUp")) {
-			if (this.scroll > 0) this.scroll = Math.max(0, this.scroll - 10);
-			else if (this.pageIndex > 0) {
-				this.pageIndex--;
-				this.readPage();
-				this.scroll = 0;
-			}
-		} else if (this.detail && kb.matches(data, "tui.select.pageDown")) {
-			if (this.scroll < Math.max(0, this.rendered.length - this.viewportLines)) this.scroll += 10;
-			else if (this.page.nextOffset !== undefined) {
-				this.offsets[++this.pageIndex] = this.page.nextOffset;
-				this.readPage();
-				this.scroll = 0;
-			}
-		} else if (!this.detail && kb.matches(data, "tui.select.up")) this.selected = Math.max(0, this.selected - 1);
-		else if (!this.detail && kb.matches(data, "tui.select.down"))
-			this.selected = Math.min(this.agents.length - 1, this.selected + 1);
-		else {
+		} else {
 			const agent = this.selectedAgent();
 			if (!agent || this.busy) return;
 			if (kb.matches(data, "tui.select.confirm")) {
@@ -139,48 +138,73 @@ export class SubagentsView implements PaneView {
 				this.pageIndex = 0;
 				this.scroll = 0;
 				this.readPage();
-			} else if (kb.matches(data, "app.agents.stop")) void this.run(() => this.manager.cancel(agent.id));
-			else if (kb.matches(data, "app.agents.delete"))
-				void this.run(async () => {
-					this.manager.remove(agent.id);
-					this.agents = this.agents.filter((value) => value.id !== agent.id);
-					if (this.detail === agent.id) this.detail = undefined;
-				});
-			else if (kb.matches(data, "app.agents.message")) this.edit({ kind: "message", id: agent.id });
+			} else if (kb.matches(data, "app.agents.stop")) {
+				if (agent.id === this.renderedSelection) void this.run(() => this.manager.cancel(agent.id));
+			} else if (kb.matches(data, "app.agents.delete")) {
+				if (agent.id === this.renderedSelection) void this.run(async () => this.manager.remove(agent.id));
+			} else if (kb.matches(data, "app.agents.message")) this.edit({ kind: "message", id: agent.id });
 			else if (kb.matches(data, "app.agents.resume")) this.edit({ kind: "resume", id: agent.id });
 		}
 		this.controls.invalidate();
 	}
 
+	scrollBy(lines: number): void {
+		if (!lines || this.editing) return;
+		this.move(lines);
+		this.controls.invalidate();
+	}
+
+	private move(lines: number): void {
+		if (this.choosingRole) {
+			this.roleSelection = Math.max(0, Math.min(this.catalog.agents.length - 1, this.roleSelection + lines));
+		} else if (this.detail) {
+			const end = Math.max(0, this.rendered.length - this.viewportLines);
+			if (lines < 0 && this.scroll === 0 && this.pageIndex > 0) {
+				this.pageIndex--;
+				this.readPage();
+				this.scroll = Infinity;
+			} else if (lines > 0 && this.scroll === end && this.page.nextOffset !== undefined) {
+				this.offsets[++this.pageIndex] = this.page.nextOffset;
+				this.readPage();
+				this.scroll = 0;
+			} else this.scroll = Math.max(0, Math.min(end, this.scroll + lines));
+		} else this.selected = Math.max(0, Math.min(this.agents.length - 1, this.selected + lines));
+	}
+
 	render(width: number, height: number): string[] {
+		this.renderedSelection = undefined;
+		if (this.disposed) return [];
 		const lines: string[] = [];
 		const agent = this.selectedAgent();
+		this.viewportLines = Math.max(1, height - 5);
+		if (this.choosingRole || this.detail) this.stopWorking();
 		if (this.choosingRole) {
 			lines.push(theme.bold("Configured agent roles"));
-			const start = Math.max(0, this.roleSelection - Math.max(1, height - 7) + 1);
-			for (
-				let index = start;
-				index < Math.min(this.catalog.agents.length, start + Math.max(1, height - 7));
-				index++
-			) {
+			const start = Math.max(0, this.roleSelection - this.viewportLines + 1);
+			for (let index = start; index < Math.min(this.catalog.agents.length, start + this.viewportLines); index++) {
 				const role = this.catalog.agents[index];
+				const prefix = rowGuide(index, this.roleSelection, this.catalog.agents.length);
 				const row = line(
-					`${index === this.roleSelection ? ">" : " "} ${agentIconPrefix(role.name)}${role.name} [${role.source}] — ${role.description}`,
-					width,
+					`${agentIconPrefix(role.name)}${role.name} [${role.source}] — ${role.description}`,
+					Math.max(0, width - visibleWidth(prefix)),
 				);
-				lines.push(index === this.roleSelection ? theme.fg("accent", row) : row);
+				lines.push(truncateToWidth(prefix + (index === this.roleSelection ? theme.fg("accent", row) : row), width));
 			}
 			for (const error of this.catalog.errors.slice(0, 2))
 				lines.push(theme.fg("warning", line(`${error.path}: ${error.error}`, width)));
 		} else if (this.detail && agent) {
-			const prefix = `${statusDot(agent.status)}  ${agentIconPrefix(agent.role)}`;
+			if (width > 0 && height > 0) this.renderedSelection = agent.id;
+			const prefix = `${statusColor(agent.status, icon("statusDot"))}  ${agentIconPrefix(agent.role)}`;
 			lines.push(
 				truncateToWidth(
 					`${prefix}${theme.bold(line(agent.label, Math.max(0, width - visibleWidth(prefix))))}`,
 					width,
 				),
 				line(`Read-only agent history · ${agent.id}`, width),
-				line(`${agent.role} · ${agent.model} · thinking ${agent.thinkingLevel} · run ${agent.run}`, width),
+				truncateToWidth(
+					`${statusColor(agent.status, agent.status)} · ${line(`${agent.role} · ${agent.model} · thinking ${agent.thinkingLevel} · run ${agent.run}`, width)}`,
+					width,
+				),
 			);
 			if (agent.error) lines.push(theme.fg("error", line(agent.error, width)));
 			if (agent.labelError) lines.push(theme.fg("warning", line(`Task label: ${agent.labelError}`, width)));
@@ -201,28 +225,32 @@ export class SubagentsView implements PaneView {
 			if (agent.historyPath) lines.push(theme.fg("muted", line(agent.historyPath, width)));
 		} else {
 			lines.push(
-				theme.bold("Sub-agents"),
 				theme.fg(
 					"muted",
 					`${this.agents.filter((agent) => agent.status === "running").length} running · ${this.agents.filter((agent) => agent.status === "queued").length} queued · ${this.catalog.agents.length} configured roles`,
 				),
 			);
 			if (!this.agents.length)
-				lines.push(`No child runs. ${keyText("app.agents.start")} chooses a role and starts a task.`);
-			const start = Math.max(0, this.selected - Math.max(1, height - 7) + 1);
-			for (let index = start; index < Math.min(this.agents.length, start + Math.max(1, height - 7)); index++) {
-				const child = this.agents[index];
-				const prefix = `${index === this.selected ? theme.fg("accent", ">") : " "} ${statusDot(child.status)}  ${agentIconPrefix(child.role)}`;
-				const suffix = ` ${child.id.slice(0, 8)}`;
-				const text = line(
-					`${child.role} · ${child.label}`,
-					Math.max(0, width - visibleWidth(prefix) - visibleWidth(suffix)),
-				);
+				lines.push(`└─ No child runs. ${keyText("app.agents.start")} chooses a role and starts a task.`);
+			const start = Math.max(0, this.selected - this.viewportLines + 1);
+			const visible = this.agents.slice(start, start + this.viewportLines);
+			if (width > 0 && height > 1 && visible.some(isActive)) {
+				this.working ??= new WorkingStatusIndicator({ requestRender: () => this.controls.invalidate() }, "");
+			} else this.stopWorking();
+			const spinner = this.working?.renderSpinnerInBorder(width);
+			for (const [offset, child] of visible.entries()) {
+				const index = start + offset;
+				const marker = spinner && isActive(child) ? spinner : statusColor(child.status, icon("statusDot"));
+				const prefix = `${rowGuide(index, this.selected, this.agents.length)}${marker}  ${agentIconPrefix(child.role)}`;
+				const label = clean(`${child.role} · ${child.label}`).replace(/\n/g, "\\n");
+				const id = ` ${child.id.slice(0, 8)}`;
+				const available = Math.max(0, width - visibleWidth(prefix) - visibleWidth(child.status) - 1);
+				const showId = visibleWidth(label) + visibleWidth(id) <= available;
+				const suffix = ` ${statusColor(child.status, child.status)}${showId ? theme.fg("muted", id) : ""}`;
+				const text = truncateToWidth(label, available);
+				if (index === this.selected && width > 0 && lines.length < height) this.renderedSelection = child.id;
 				lines.push(
-					truncateToWidth(
-						`${prefix}${index === this.selected ? theme.fg("accent", text) : text}${theme.fg("muted", suffix)}`,
-						width,
-					),
+					truncateToWidth(`${prefix}${index === this.selected ? theme.fg("accent", text) : text}${suffix}`, width),
 				);
 			}
 		}
@@ -261,8 +289,15 @@ export class SubagentsView implements PaneView {
 
 	dispose(): void {
 		this.disposed = true;
+		this.renderedSelection = undefined;
 		this.unsubscribe();
+		this.stopWorking();
 		this.transcript?.dispose();
+	}
+
+	private stopWorking(): void {
+		this.working?.dispose();
+		this.working = undefined;
 	}
 
 	private edit(action: { kind: "start"; role: string } | { kind: "message" | "resume"; id: string }): void {
@@ -282,12 +317,17 @@ export class SubagentsView implements PaneView {
 						: action.kind === "resume"
 							? await this.actions.resume(action.id, text)
 							: await this.manager.message(action.id, text);
+				if (this.disposed) return;
 				this.detail = agent.id;
 				this.choosingRole = false;
 				this.offsets = [0];
 				this.pageIndex = 0;
 				this.scroll = 0;
 				this.agents = this.manager.list();
+				this.selected = Math.max(
+					0,
+					this.agents.findIndex((entry) => entry.id === agent.id),
+				);
 				this.readPage();
 			});
 		};
@@ -349,20 +389,27 @@ function agentIconPrefix(role: string): string {
 	return iconPrefix(name);
 }
 
-function statusDot(status: SubagentStatus): string {
-	const dot = icon("statusDot");
+function rowGuide(index: number, selected: number, count: number): string {
+	return `${index === selected ? theme.fg("accent", ">") : " "} ${theme.fg("muted", index === count - 1 ? "└─ " : "├─ ")}`;
+}
+
+function isActive(agent: SubagentInfo): boolean {
+	return agent.status === "running" || agent.status === "queued";
+}
+
+function statusColor(status: SubagentStatus, text: string): string {
 	switch (status) {
 		case "running":
-			return theme.style(dot, { fg: indexedColor(4) });
+			return theme.style(text, { fg: indexedColor(4) });
 		case "completed":
-			return theme.fg("success", dot);
+			return theme.fg("success", text);
 		case "failed":
 		case "interrupted":
-			return theme.fg("error", dot);
+			return theme.fg("error", text);
 		case "queued":
 		case "paused":
-			return theme.fg("warning", dot);
+			return theme.fg("warning", text);
 		case "stopped":
-			return theme.fg("muted", dot);
+			return theme.fg("muted", text);
 	}
 }

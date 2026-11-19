@@ -183,21 +183,3 @@ export function renderToolPath(
 	const prefix = fileIconPrefix(value, options?.kind);
 	return (prefix ? theme.fg("accent", prefix) : "") + linkPath(label, value, cwd);
 }
-
-/** Decorate only the path-listing block, leaving tool and retained-output notices untouched. */
-export function decoratePathListing(lines: readonly string[]): string[] {
-	let inListing = true;
-	return lines.map((line) => {
-		// Textual tool output is a parsing boundary: listing rows precede blank-separated notices.
-		if (!line) inListing = false;
-		if (
-			!inListing ||
-			line === "(empty directory)" ||
-			line === "No files found matching pattern" ||
-			/^\[(?:Full (?:captured )?output:|Truncated:|Showing )/.test(line)
-		) {
-			return line;
-		}
-		return fileIconPrefix(line) + line;
-	});
-}

@@ -6,8 +6,8 @@
  * definition, so the tool's public shape is unchanged.
  */
 
-import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
-import { renderDiff } from "../../../modes/interactive/components/diff.ts";
+import { Box, type Component, Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { EditDiffComponent } from "../../../modes/interactive/components/diff.ts";
 import { iconPrefix } from "../../../modes/interactive/icons.ts";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolDefinition } from "../../extensions/types.ts";
@@ -86,13 +86,11 @@ function formatEditCall(args: RenderableEditArgs | undefined, theme: Theme, cwd:
 	return `${theme.fg("toolTitle", theme.bold(`${iconPrefix("edit")}edit`))}  ${pathDisplay}`;
 }
 function formatEditResult(
-	args: RenderableEditArgs | undefined,
 	preview: EditPreview | undefined,
 	result: EditToolResultLike,
 	theme: Theme,
 	isError: boolean,
-): string | undefined {
-	const rawPath = str(args?.file_path ?? args?.path);
+): Component | undefined {
 	const previewDiff = preview && !("error" in preview) ? preview.diff : undefined;
 	const previewError = preview && "error" in preview ? preview.error : undefined;
 	if (isError) {
@@ -103,12 +101,12 @@ function formatEditResult(
 		if (!errorText || errorText === previewError) {
 			return undefined;
 		}
-		return theme.fg("error", errorText);
+		return new Text(theme.fg("error", errorText), 0, 0);
 	}
 
 	const resultDiff = result.details?.diff;
 	if (resultDiff && resultDiff !== previewDiff) {
-		return renderDiff(resultDiff, { filePath: rawPath ?? undefined });
+		return new EditDiffComponent(resultDiff);
 	}
 
 	return undefined;
@@ -145,10 +143,12 @@ function buildEditCallComponent(
 		return component;
 	}
 
-	const body =
-		"error" in component.preview ? theme.fg("error", component.preview.error) : renderDiff(component.preview.diff);
 	component.addChild(new Spacer(1));
-	component.addChild(new Text(body, 0, 0));
+	component.addChild(
+		"error" in component.preview
+			? new Text(theme.fg("error", component.preview.error), 0, 0)
+			: new EditDiffComponent(component.preview.diff),
+	);
 	return component;
 }
 function setEditPreview(
@@ -171,7 +171,8 @@ function setEditPreview(
 	return changed;
 }
 
-export const editRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "renderResult"> = {
+export const editRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "renderResult" | "renderShell"> = {
+	renderShell: "self",
 	renderCall(args, theme, context) {
 		const component = getEditCallRenderComponent(context.state, context.lastComponent);
 		const previewInput = getRenderablePreviewInput(args as RenderableEditArgs | undefined);
@@ -234,20 +235,16 @@ export const editRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rende
 			}
 		}
 
-		const output = formatEditResult(
-			context.args as RenderableEditArgs | undefined,
-			callComponent?.preview,
-			typedResult,
-			theme,
-			context.isError,
-		);
+		const output = formatEditResult(callComponent?.preview, typedResult, theme, context.isError);
 		const component = (context.lastComponent as Container | undefined) ?? new Container();
 		component.clear();
 		if (!output) {
 			return component;
 		}
 		component.addChild(new Spacer(1));
-		component.addChild(new Text(output, context.outputPad, 0));
+		const body = new Box(context.outputPad, 0);
+		body.addChild(output);
+		component.addChild(body);
 		return component;
 	},
 };

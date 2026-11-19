@@ -1,4 +1,6 @@
 // Dashboard scope previews and apply/save behavior using local faux models only.
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createModelDashboardOptions } from "../src/core/model-dashboard-controller.ts";
 import {
@@ -31,9 +33,15 @@ describe("model dashboard controller", () => {
 		settingsManager.setModelPreferences("project", "btw", { fastMode: true });
 		setSessionModelPreferences(session.sessionManager, "btw", { thinkingLevel: "high" });
 		const options = createModelDashboardOptions(session, settingsManager, tempDir);
-		expect(options.targets.map((target) => target.id)).toEqual(
-			expect.arrayContaining(["main", "btw", "role:worker", "role:reviewer"]),
+		expect(options.targets).toEqual(
+			expect.arrayContaining([
+				{ id: "main", label: "Default" },
+				{ id: "btw", label: "Btw" },
+				{ id: "role:worker", label: "Agent worker" },
+				{ id: "role:reviewer", label: "Agent reviewer" },
+			]),
 		);
+		expect(options).not.toHaveProperty("warning");
 		expect(options.resolve("btw", "global", options.read("btw", "global"))).toMatchObject({
 			model: { id: "worker" },
 			thinkingLevel: "low",
@@ -49,6 +57,44 @@ describe("model dashboard controller", () => {
 			thinkingLevel: "high",
 			fastMode: true,
 		});
+	});
+
+	it("reports discovery failures separately from the remaining targets", async () => {
+		harness = await createHarness();
+		const agents = join(harness.tempDir, "agents");
+		mkdirSync(agents, { recursive: true });
+		const path = join(agents, "broken.md");
+		writeFileSync(path, "Missing profile metadata");
+		const options = createModelDashboardOptions(harness.session, harness.settingsManager, harness.tempDir);
+		expect(options).toMatchObject({ warning: expect.stringContaining(`${path}: Invalid agent frontmatter`) });
+		expect(options.targets).toEqual([
+			{ id: "main", label: "Default" },
+			{ id: "btw", label: "Btw" },
+		]);
+	});
+
+	it("previews staged lower scopes and the pending Default without changing the session", async () => {
+		harness = await createHarness({
+			models: [
+				{ id: "main", reasoning: true },
+				{ id: "other", reasoning: true },
+			],
+		});
+		const { session, settingsManager, tempDir } = harness;
+		const options = createModelDashboardOptions(session, settingsManager, tempDir);
+		const other = { provider: harness.getModel().provider, id: "other" };
+		const pending = (id: string, scope: string) => {
+			if (id === "main" && scope === "project") return { model: other, thinkingLevel: "high" as const };
+			if (id === "btw" && scope === "global") return { fastMode: true };
+			return undefined;
+		};
+		expect(options.resolve("btw", "session", {}, pending)).toMatchObject({
+			model: other,
+			thinkingLevel: "high",
+			fastMode: true,
+		});
+		expect(session.model?.id).toBe("main");
+		expect(options.read("btw", "global")).toEqual({});
 	});
 
 	it("applies main selection now and saves only the raw chosen scope", async () => {

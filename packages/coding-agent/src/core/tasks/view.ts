@@ -53,14 +53,9 @@ export class TasksBar implements Component {
 	render(width: number): string[] {
 		const snapshot = this.store.getSnapshot();
 		const theme = this.getTheme();
-		const height = Math.min(this.state.expanded ? 10 : COLLAPSED_TASK_COUNT + 2, Math.floor(this.rows() / 3));
+		const height = Math.min(this.state.expanded ? 10 : COLLAPSED_TASK_COUNT + 1, Math.floor(this.rows() / 3));
 		if (width <= 0 || height <= 0 || snapshot.tasks.length === 0) return [];
-		const header = taskTreeHeader(
-			snapshot,
-			width,
-			theme,
-			`${keyText("app.tasks.expand")} ${this.state.expanded ? "collapse" : "expand"}`,
-		);
+		const header = taskTreeHeader(snapshot, width, theme);
 		if (!this.state.expanded) {
 			const selected = [
 				...snapshot.tasks.filter((task) => task.status === "in_progress"),
@@ -142,7 +137,7 @@ export class TasksView implements PaneView {
 		const header = taskTreeHeader(snapshot, width, theme);
 		const leaves = snapshot.tasks.length
 			? taskTreeLeaves(snapshot.tasks, width, theme)
-			: [truncateToWidth(theme.fg("muted", "   └─ No tasks. The agent can add tasks for multi-step work."), width)];
+			: [truncateToWidth(theme.fg("muted", "└─ No tasks. The agent can add tasks for multi-step work."), width)];
 		this.pageSize = Math.max(1, height - header.length - 1);
 		this.scroll = Math.min(this.scroll, Math.max(0, leaves.length - this.pageSize));
 		const footer = this.error

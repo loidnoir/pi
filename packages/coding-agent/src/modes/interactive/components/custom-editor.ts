@@ -28,6 +28,7 @@ export type CustomEditorOptions = EditorOptions & {
 export class CustomEditor extends Editor {
 	private keybindings: KeybindingsManager;
 	private workingStatusIndicator: StatusIndicator | undefined;
+	private readonly autoEmbedWorking: boolean;
 	public readonly embedWorkingStatus: boolean;
 	public actionHandlers: Map<AppKeybinding, () => void> = new Map();
 
@@ -42,15 +43,26 @@ export class CustomEditor extends Editor {
 		super(tui, theme, options);
 		this.keybindings = keybindings;
 		this.embedWorkingStatus = options?.embedWorkingStatus ?? false;
+		this.autoEmbedWorking = options?.embedWorkingStatus === undefined;
 		this.onAction("app.editor.preview", () => this.previewContent());
 	}
 
+	get embedWorkingIndicator(): boolean {
+		return (
+			this.embedWorkingStatus ||
+			(this.autoEmbedWorking &&
+				this.render === Editor.prototype.render &&
+				this.renderTopBorder === CustomEditor.prototype.renderTopBorder)
+		);
+	}
+
 	setWorkingStatusIndicator(indicator: StatusIndicator | undefined): void {
-		this.workingStatusIndicator = indicator;
+		const embedded = indicator?.kind === "working" ? this.embedWorkingIndicator : this.embedWorkingStatus;
+		this.workingStatusIndicator = embedded ? indicator : undefined;
 	}
 
 	protected override renderTopBorder(width: number, hiddenLineCount: number): string {
-		if (!this.embedWorkingStatus || !this.workingStatusIndicator || width <= 0) {
+		if (!this.workingStatusIndicator || width <= 0) {
 			return super.renderTopBorder(width, hiddenLineCount);
 		}
 
@@ -61,36 +73,34 @@ export class CustomEditor extends Editor {
 		const overflowLabel = hiddenLineCount > 0 ? ` ↑ ${hiddenLineCount} more ` : undefined;
 		const overflowLabelWidth = overflowLabel ? visibleWidth(overflowLabel) : 0;
 		const overflowStart = Math.floor((width - overflowLabelWidth) / 2);
-		const canFitOverflow = () =>
-			overflowLabel !== undefined && overflowLabelWidth + 2 <= width && overflowStart - (3 + statusWidth + 1) >= 1;
-
-		if (overflowLabel && !canFitOverflow()) {
+		const onRight = this.workingStatusIndicator.kind === "working";
+		const besideOverflow = onRight ? width - overflowStart - overflowLabelWidth : overflowStart;
+		if ((overflowLabel ? besideOverflow : width) < statusWidth + 5) {
 			status = this.workingStatusIndicator.renderSpinnerInBorder(width);
 			statusWidth = visibleWidth(status);
+			if (statusWidth === 0) return super.renderTopBorder(width, hiddenLineCount);
 		}
 
-		if (canFitOverflow()) {
-			const leftBlockWidth = 3 + statusWidth + 1;
+		if (width < statusWidth + 5) {
+			const near = Math.min(3, width - statusWidth);
+			const far = width - statusWidth - near;
 			return (
-				this.borderColor("── ") +
+				this.borderColor("─".repeat(onRight ? far : near)) +
 				status +
-				this.borderColor(
-					` ${"─".repeat(overflowStart - leftBlockWidth)}${overflowLabel}${"─".repeat(width - overflowStart - overflowLabelWidth)}`,
-				)
+				this.borderColor("─".repeat(onRight ? near : far))
 			);
 		}
 
-		if (width >= statusWidth + 5) {
-			return this.borderColor("── ") + status + this.borderColor(` ${"─".repeat(width - statusWidth - 4)}`);
+		const farWidth = width - statusWidth - 4;
+		let farBorder = "─".repeat(farWidth);
+		if (overflowLabel && besideOverflow >= statusWidth + 5) {
+			const start = onRight ? overflowStart : overflowStart - statusWidth - 4;
+			farBorder = farBorder.slice(0, start) + overflowLabel + farBorder.slice(start + overflowLabelWidth);
 		}
-
-		status = this.workingStatusIndicator.renderSpinnerInBorder(width);
-		statusWidth = visibleWidth(status);
-		const prefixWidth = Math.min(3, Math.max(0, width - statusWidth));
 		return (
-			this.borderColor("─".repeat(prefixWidth)) +
+			this.borderColor(`${onRight ? farBorder : "──"} `) +
 			status +
-			this.borderColor("─".repeat(Math.max(0, width - prefixWidth - statusWidth)))
+			this.borderColor(` ${onRight ? "──" : farBorder}`)
 		);
 	}
 

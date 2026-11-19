@@ -3,6 +3,7 @@ import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as tui from "@earendil-works/pi-tui";
+import type { Terminal as Xterm } from "@xterm/headless";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import { localProof, receivePackets, sendPacket } from "../src/core/local-channel.ts";
@@ -30,8 +31,8 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe("pane client terminal input", () => {
-	it("forwards viewport keys and normalized wheel lines while retaining local mouse selection", async () => {
+describe("pane client terminal", () => {
+	it("forwards viewport input, retains selection and paints the frame on the terminal background", async () => {
 		const terminal = new VirtualTerminal(80, 24);
 		// Replace only the process terminal boundary; run the real fullscreen input dispatcher.
 		// biome-ignore lint/complexity/useArrowFunction: Vitest invokes this mock as a constructor.
@@ -70,6 +71,24 @@ describe("pane client terminal input", () => {
 				await terminal.waitForRender();
 				expect(terminal.getViewport()[0]).toBe("selectable pane content");
 			});
+			terminal.sendInput("\x1b]11;rgb:eeee/f0f0/f2f2\x07");
+			terminal.sendInput("\x1b[?62;22c");
+			const card = `\x1b[48;2;211;226;205m${"read".padEnd(80)}\x1b[49m`;
+			sendPacket(socket, {
+				type: "frame",
+				lines: ["\x1b[34mselectable pane content\x1b[0m", card, "", card, "Messages 2/2"],
+			});
+			await vi.waitFor(async () => {
+				await terminal.waitForRender();
+				expect(terminal.getViewport()[4].trimEnd()).toBe("Messages 2/2");
+			});
+			const { buffer } = (terminal as unknown as { xterm: Xterm }).xterm;
+			for (const [row, color] of [0xeef0f2, 0xd3e2cd, 0xeef0f2, 0xd3e2cd, 0xeef0f2].entries()) {
+				for (let col = 0; col < terminal.columns; col++) {
+					const cell = buffer.active.getLine(row)!.getCell(col)!;
+					expect(cell.isBgRGB() && cell.getBgColor(), `row ${row}, col ${col}`).toBe(color);
+				}
+			}
 			terminal.sendInput("\x1b[5~"); // PageUp
 			terminal.sendInput("\x1b[6~"); // PageDown
 			terminal.sendInput("x");

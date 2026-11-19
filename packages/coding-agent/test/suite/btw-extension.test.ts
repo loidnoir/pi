@@ -107,7 +107,7 @@ describe("saved /btw command", () => {
 		await new Promise<void>((resolve) => setImmediate(resolve));
 		chat.handleInput("\u0010");
 		expect(chat.agent.state.model.id).toBe("side-model");
-		chat.ask("/effort low");
+		chat.ask("/thinking low");
 		expect(chat.agent.state.thinkingLevel).toBe("low");
 		expect(text(chat)).toContain("effort low");
 		expect(harness.session.agent.state.model).toBe(parentModel);

@@ -238,10 +238,11 @@ interface WorkingStatusEditor extends EditorComponent {
 	setWorkingStatusIndicator(indicator: StatusIndicator | undefined): void;
 }
 
-function isEmbeddedStatus(editor: EditorComponent): editor is WorkingStatusEditor {
+function isEmbeddedStatus(editor: EditorComponent, kind?: StatusIndicator["kind"]): editor is WorkingStatusEditor {
 	return (
 		"embedWorkingStatus" in editor &&
-		editor.embedWorkingStatus === true &&
+		(editor.embedWorkingStatus === true ||
+			(kind === "working" && "embedWorkingIndicator" in editor && editor.embedWorkingIndicator === true)) &&
 		"setWorkingStatusIndicator" in editor &&
 		typeof editor.setWorkingStatusIndicator === "function"
 	);
@@ -533,6 +534,7 @@ export class InteractiveMode {
 	private cacheWarmingNotice: { component: ThemedText; total: { cost: number }; note: string | undefined } | undefined;
 	private anthropicSubscriptionWarningShown = false;
 	private modelDashboard: ModelDashboardPane | undefined;
+	private modelDashboardRecoveryKey?: object;
 	private modelDashboardClosing: Promise<void> | undefined;
 	private modelDashboardSuspensions = 0;
 
@@ -817,9 +819,8 @@ export class InteractiveMode {
 			};
 		}
 
-		for (const thinkingCommand of slashCommands.filter(
-			(command) => command.name === "thinking" || command.name === "effort",
-		)) {
+		const thinkingCommand = slashCommands.find((command) => command.name === "thinking");
+		if (thinkingCommand) {
 			thinkingCommand.getArgumentCompletions = (prefix: string): AutocompleteItem[] | null => {
 				return createFuzzyAutocompleteItems(
 					this.session.getAvailableThinkingLevels(),
@@ -2158,12 +2159,14 @@ export class InteractiveMode {
 					}
 				},
 				navigateTree: async (targetId, options) => {
-					const result = await this.session.navigateTree(targetId, {
-						summarize: options?.summarize,
-						customInstructions: options?.customInstructions,
-						replaceInstructions: options?.replaceInstructions,
-						label: options?.label,
-					});
+					const result = await this.withModelDashboardClosed(() =>
+						this.session.navigateTree(targetId, {
+							summarize: options?.summarize,
+							customInstructions: options?.customInstructions,
+							replaceInstructions: options?.replaceInstructions,
+							label: options?.label,
+						}),
+					);
 					if (result.cancelled) {
 						return { cancelled: true };
 					}
@@ -2488,7 +2491,7 @@ export class InteractiveMode {
 
 	private setEditorWorkingStatusIndicator(indicator: StatusIndicator | undefined): boolean {
 		this.defaultEditor.setWorkingStatusIndicator(undefined);
-		if (!isEmbeddedStatus(this.editor)) return false;
+		if (!isEmbeddedStatus(this.editor, indicator?.kind ?? "working")) return false;
 		this.editor.setWorkingStatusIndicator(indicator);
 		return true;
 	}
@@ -2547,7 +2550,7 @@ export class InteractiveMode {
 	}
 
 	private showWorkingStatusIndicator(): void {
-		const colorFn = isEmbeddedStatus(this.editor)
+		const colorFn = isEmbeddedStatus(this.editor, "working")
 			? (text: string) =>
 					(this.editor.borderColor ?? theme.getThinkingBorderColor(this.session.thinkingLevel || "off"))(text)
 			: undefined;
@@ -3450,14 +3453,8 @@ export class InteractiveMode {
 				await this.handleModelCommand(searchTerm);
 				return;
 			}
-			if (
-				text === "/thinking" ||
-				text.startsWith("/thinking ") ||
-				text === "/effort" ||
-				text.startsWith("/effort ")
-			) {
-				const argumentIndex = text.indexOf(" ");
-				const searchTerm = argumentIndex === -1 ? undefined : text.slice(argumentIndex + 1).trim();
+			if (text === "/thinking" || text.startsWith("/thinking ")) {
+				const searchTerm = text.slice("/thinking".length).trim() || undefined;
 				this.editor.setText("");
 				this.handleThinkingCommand(searchTerm);
 				return;
@@ -5565,6 +5562,7 @@ export class InteractiveMode {
 					this.runtimeHost.services.agentDir,
 					controller.signal,
 				);
+				options.recoveryKey = this.modelDashboardRecoveryKey ??= {};
 				options.onClose = () => controller.abort();
 				const ui = this.createExtensionUIContext();
 				const save = options.save;
@@ -5638,6 +5636,7 @@ export class InteractiveMode {
 	}
 
 	private closeModelDashboard(): Promise<void> {
+		this.modelDashboardRecoveryKey = undefined;
 		if (this.modelDashboardClosing) return this.modelDashboardClosing;
 		const dashboard = this.modelDashboard;
 		if (!dashboard) return Promise.resolve();
@@ -6101,10 +6100,12 @@ export class InteractiveMode {
 					}
 
 					try {
-						const result = await this.session.navigateTree(entryId, {
-							summarize: wantsSummary,
-							customInstructions,
-						});
+						const result = await this.withModelDashboardClosed(() =>
+							this.session.navigateTree(entryId, {
+								summarize: wantsSummary,
+								customInstructions,
+							}),
+						);
 
 						if (result.aborted) {
 							// Summarization aborted - re-show tree selector with same selection

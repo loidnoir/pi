@@ -26,6 +26,7 @@ export type IconName =
 	| "edit"
 	| "search"
 	| "folder"
+	| "globe"
 	| "terminal"
 	| "skill"
 	| "job"
@@ -82,6 +83,7 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		edit: "✎",
 		search: "⌕",
 		folder: "/",
+		globe: "\u{1f310}",
 		terminal: ">_",
 		skill: "✦",
 		job: "⚙",
@@ -137,6 +139,7 @@ const ICONS: Record<IconPreset, Record<IconName, string>> = {
 		edit: "\uf040",
 		search: "\uf002",
 		folder: "\uf07b",
+		globe: "\uf0ac",
 		terminal: "\uf120",
 		skill: "\uf0d0",
 		job: "\uf085",

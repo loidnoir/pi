@@ -66,7 +66,7 @@ export function renderJobsCall(args: unknown, theme: Theme, context: ToolRenderC
 		kind: "call",
 		heading:
 			theme.fg("toolTitle", theme.bold(`${iconPrefix("job")}${labels[input.action ?? ""] ?? "Jobs"}`)) +
-			theme.fg("accent", input.id ? ` · ${input.id.slice(0, 8)}` : input.all ? " · all projects" : ""),
+			theme.fg("accent", input.all ? " · all projects" : ""),
 		preview:
 			input.name || input.command ? theme.fg("muted", compactPreview(input.name ?? input.command ?? "")) : undefined,
 		expandedText: context.expanded ? JSON.stringify(args, null, 2) : undefined,
@@ -109,17 +109,14 @@ export const renderJobMessage: MessageRenderer = (message, options, theme) => {
 			name = notice[2];
 		}
 	}
+	const preview = !notice ? raw : notice[4].includes(notice[1]) ? "" : `Full output: ${notice[4]}`;
 	return new ActionBlock(
 		() => ({
 			kind: "message",
 			heading:
-				theme.fg(
-					"customMessageLabel",
-					theme.bold(`${iconPrefix("job")}Job${notice ? ` ${notice[1].slice(0, 8)}` : ""}`),
-				) +
-				theme.fg(stateColor(status), ` · ${stateLabel(status)}`) +
-				(name ? theme.fg("muted", ` · ${compactPreview(name)}`) : ""),
-			preview: theme.fg("customMessageText", compactPreview(notice ? `Full output: ${notice[4]}` : raw)),
+				theme.fg("customMessageLabel", theme.bold(jobTitle(name))) +
+				theme.fg(stateColor(status), ` · ${stateLabel(status)}`),
+			preview: preview ? theme.fg("customMessageText", compactPreview(preview)) : undefined,
 			expandedText: options.expanded
 				? raw + (message.details === undefined ? "" : `\n\n${JSON.stringify(message.details, null, 2)}`)
 				: undefined,
@@ -144,6 +141,15 @@ function decodeResult(raw: string): JobsRenderResult | undefined {
 	}
 }
 
+function jobTitle(name: string): string {
+	const label = compactPreview(name);
+	return `${iconPrefix("job")}Job${label ? ` ${label}` : ""}`;
+}
+
+function jobHeading(job: Static<typeof jobSchema>): string {
+	return `${jobTitle(job.name)} · ${stateLabel(job.runtime.state)}`;
+}
+
 function summarize(
 	output: JobsRenderResult | undefined,
 	raw: string,
@@ -155,13 +161,15 @@ function summarize(
 		const job = output.job;
 		const error = job.runtime.error ?? job.progressError;
 		const progress = job.progress
-			? ` · ${job.progress.percent}%${job.progress.message ? ` ${job.progress.message}` : ""}`
+			? `${job.progress.percent}%${job.progress.message ? ` ${job.progress.message}` : ""}`
 			: "";
 		const exit =
-			job.runtime.exitCode === undefined || job.runtime.exitCode === null ? "" : ` · exit ${job.runtime.exitCode}`;
+			job.runtime.exitCode === undefined || job.runtime.exitCode === null ? "" : `exit ${job.runtime.exitCode}`;
+		const detail = error ? `Error: ${error}` : output.log ? output.log.text || "No log output" : job.command;
+		const metrics = [progress, exit].filter(Boolean).join(" · ");
 		return {
-			heading: `${stateLabel(job.runtime.state)} · ${job.id.slice(0, 8)} · ${job.name}${progress}${exit}`,
-			preview: error ? `Error: ${error}` : output.log ? output.log.text || "No log output" : job.command,
+			heading: jobHeading(job),
+			preview: [error ? detail : metrics, error ? metrics : detail].filter(Boolean).join("\n"),
 			color: error ? "error" : stateColor(job.runtime.state),
 		};
 	}
@@ -174,18 +182,15 @@ function summarize(
 				? `${output.jobs.length} background jobs${failed ? " · errors" : ""}`
 				: "No background jobs",
 			preview: failed
-				? `${failed.id.slice(0, 8)} · ${failed.runtime.state} · ${failed.name}${failed.runtime.error || failed.progressError ? ` · Error: ${failed.runtime.error ?? failed.progressError}` : ""}`
+				? `${jobHeading(failed)}${failed.runtime.error || failed.progressError ? ` · Error: ${failed.runtime.error ?? failed.progressError}` : ""}`
 				: output.jobs
 						.slice(0, 3)
-						.map(
-							(job) =>
-								`${job.id.slice(0, 8)} · ${job.runtime.state} · ${job.name}${job.progress ? ` · ${job.progress.percent}%` : ""}`,
-						)
+						.map((job) => `${jobHeading(job)}${job.progress ? ` · ${job.progress.percent}%` : ""}`)
 						.join("\n"),
 			color: failed ? "error" : "muted",
 		};
 	}
-	if (output?.deleted) return { heading: `Deleted job ${output.deleted.slice(0, 8)}`, preview: "", color: "success" };
+	if (output?.deleted) return { heading: "Deleted job", preview: "", color: "success" };
 	return {
 		heading: partial ? "Waiting for job status…" : raw ? "Unrecognized job result" : "No job output",
 		preview: output ? "Expand to inspect original output" : raw,

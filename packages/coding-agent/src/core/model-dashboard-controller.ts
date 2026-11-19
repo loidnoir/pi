@@ -15,6 +15,8 @@ import type { SettingsManager } from "./settings-manager.ts";
 import type { ModelPreferences } from "./settings-schema.ts";
 import { discoverAgentDefinitions } from "./subagents/definitions.ts";
 
+type PendingLayer = (target: string, scope: ModelDashboardScope) => ModelPreferences | undefined;
+
 /** Build a controller tied to one runtime; persistent main saves also apply to the current conversation. */
 export function createModelDashboardOptions(
 	session: AgentSession,
@@ -25,25 +27,9 @@ export function createModelDashboardOptions(
 	const definitions = discoverAgentDefinitions(session.sessionManager.getCwd(), agentDir);
 	const roles = definitions.agents.filter((role) => role.source !== "project" || settings.isProjectTrusted());
 	const targets: ModelDashboardTarget[] = [
-		{
-			id: "main",
-			label: "Main thread",
-			description:
-				"Apply now; project/global also save startup defaults. Saved per-model effort still applies when switching models." +
-				(definitions.errors.length
-					? ` Profile configuration errors: ${definitions.errors.map((error) => `${error.path}: ${error.error}`).join("; ")}`
-					: ""),
-		},
-		{
-			id: "btw",
-			label: "BTW default",
-			description: "Only new side chats use these defaults; existing chats keep their saved settings.",
-		},
-		...roles.map((role) => ({
-			id: `role:${role.name}`,
-			label: `Sub-agent: ${role.name}`,
-			description: `${role.description} New launches only; submitted and resumed children keep their selections.`,
-		})),
+		{ id: "main", label: "Default" },
+		{ id: "btw", label: "Btw" },
+		...roles.map((role) => ({ id: `role:${role.name}`, label: `Agent ${role.name}` })),
 	];
 
 	function current(): ResolvedModelPreferences {
@@ -65,18 +51,29 @@ export function createModelDashboardOptions(
 		};
 	}
 
-	function layers(target: string, scope: ModelDashboardScope, draft: ModelPreferences): ModelPreferences {
+	function layers(
+		target: string,
+		scope: ModelDashboardScope,
+		draft: ModelPreferences,
+		pending?: PendingLayer,
+	): ModelPreferences {
+		const layer = (scope: "global" | "project") =>
+			pending?.(target, scope) ?? settings.getModelPreferences(scope, target);
 		return {
-			...(scope !== "global" ? settings.getModelPreferences("global", target) : {}),
-			...(scope === "session" ? settings.getModelPreferences("project", target) : {}),
+			...(scope !== "global" ? layer("global") : {}),
+			...(scope === "session" ? layer("project") : {}),
 			...draft,
 		};
 	}
 
-	function startup(scope: ModelDashboardScope, draft: ModelPreferences): ResolvedModelPreferences {
+	function startup(
+		scope: ModelDashboardScope,
+		draft: ModelPreferences,
+		pending?: PendingLayer,
+	): ResolvedModelPreferences {
 		// Main null resets that scope's field, revealing lower-scope defaults rather than storing null in legacy keys.
 		const clean = Object.fromEntries(Object.entries(draft).filter(([, value]) => value !== null));
-		const preferences = layers("main", scope, clean);
+		const preferences = layers("main", scope, clean, pending);
 		const available = session.modelRuntime.getAvailableSnapshot();
 		const automatic =
 			session.scopedModels[0]?.model ??
@@ -101,10 +98,15 @@ export function createModelDashboardOptions(
 		return resolved;
 	}
 
-	function resolve(target: string, scope: ModelDashboardScope, draft: ModelPreferences): ResolvedModelPreferences {
+	function resolve(
+		target: string,
+		scope: ModelDashboardScope,
+		draft: ModelPreferences,
+		pending?: PendingLayer,
+	): ResolvedModelPreferences {
 		if (target === "main") {
 			if (scope !== "session") {
-				const selection = startup(scope, draft);
+				const selection = startup(scope, draft, pending);
 				if (draft.thinkingLevel != null && selection.model)
 					selection.thinkingLevel = clampThinkingLevel(selection.model, draft.thinkingLevel);
 				return selection;
@@ -112,25 +114,40 @@ export function createModelDashboardOptions(
 			if (draft.model && draft.thinkingLevel != null && draft.fastMode != null)
 				return resolveModelTarget(draft, current(), session.modelRuntime);
 			const defaults = {
-				...settings.getModelPreferences("project", "main"),
+				...(pending?.("main", "project") ?? settings.getModelPreferences("project", "main")),
 				...(draft.model ? { model: draft.model } : {}),
 			};
 			// Effort inheritance belongs to the final selected model, not the startup model being replaced.
-			return resolveModelTarget(draft, startup("project", defaults), session.modelRuntime);
+			return resolveModelTarget(draft, startup("project", defaults, pending), session.modelRuntime);
 		}
 		const role = roles.find((role) => target === `role:${role.name}`);
-		return resolveModelTarget(layers(target, scope, draft), current(), session.modelRuntime, role);
+		let main = current();
+		if (pending) {
+			for (const layer of ["session", "project", "global"] as const) {
+				const mainDraft = pending("main", layer);
+				if (!mainDraft) continue;
+				main = resolve("main", layer, mainDraft, pending);
+				break;
+			}
+		}
+		return resolveModelTarget(layers(target, scope, draft, pending), main, session.modelRuntime, role);
 	}
 
 	return {
 		targets,
+		...(definitions.errors.length
+			? {
+					warning: `Profile configuration errors: ${definitions.errors.map(({ path, error }) => `${path}: ${error}`).join("; ")}`,
+				}
+			: {}),
+		signal,
 		modelRuntime: session.modelRuntime,
 		scopedModels: session.scopedModels,
 		projectTrusted: settings.isProjectTrusted(),
 		read,
-		resolve(target, scope, draft) {
+		resolve(target, scope, draft, pending) {
 			try {
-				return resolve(target, scope, draft);
+				return resolve(target, scope, draft, pending);
 			} catch {
 				// A removed model must remain editable; Apply still reports the precise resolution failure below.
 				return {

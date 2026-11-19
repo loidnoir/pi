@@ -60,7 +60,7 @@ export function createSubagentExtension(agentDir = getAgentDir()): ExtensionFact
 						.filter((agent) => agent.status === "running" || agent.status === "queued").length;
 					(context ?? ctx).ui.setStatus(
 						"subagents",
-						active ? `${active} active sub-agent${active === 1 ? "" : "s"}` : undefined,
+						active ? `${active} agent${active === 1 ? "" : "s"}` : undefined,
 					);
 				};
 				unsubscribeStatus = owner.subscribe((event) => {

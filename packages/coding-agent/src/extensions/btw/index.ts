@@ -110,7 +110,7 @@ export function createBtwExtension(agentDir = getAgentDir()): ExtensionFactory {
 			handler: async (args, ctx) => {
 				if (args.trim() === "--help") {
 					ctx.ui.notify(
-						"/btw [--tui|--rex] [--split|--floating] [--minimized] [question]. Without a question, browse this main thread's saved chats, newest activity first, 20 per page. A question always creates a separate chat referencing the current main context. Reopen from history for follow-ups. Inside a chat, /model and /effort (/thinking) change only that chat's saved selection; finish or cancel active work first. Only read, grep, find and ls are available. Escape cancels an answer, then closes when idle; /close keeps saved history. With --no-session, histories stay in memory only.",
+						"/btw [--tui|--rex] [--split|--floating] [--minimized] [question]. Without a question, browse this main thread's saved chats, newest activity first, 20 per page. A question always creates a separate chat referencing the current main context. Reopen from history for follow-ups. Inside a chat, /model and /thinking change only that chat's saved selection; finish or cancel active work first. Only read, grep, find and ls are available. Escape cancels an answer, then closes when idle; /close keeps saved history. With --no-session, histories stay in memory only.",
 						"info",
 					);
 					return;

@@ -7,20 +7,13 @@
  */
 
 import { Text } from "@earendil-works/pi-tui";
-import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import { iconPrefix } from "../../../modes/interactive/icons.ts";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolRenderers, ToolRenderResultOptions } from "../../extensions/types.ts";
 import type { FindToolDetails } from "../find.ts";
-import {
-	decoratePathListing,
-	getTextOutput,
-	invalidArgText,
-	shortenPath,
-	str,
-	type ToolRenderResultLike,
-} from "../render-utils.ts";
+import { getTextOutput, invalidArgText, shortenPath, str, type ToolRenderResultLike } from "../render-utils.ts";
 import { DEFAULT_MAX_BYTES, formatSize } from "../truncate.ts";
+import { renderListResult } from "./list-result.ts";
 
 type FindRenderArgs = { pattern?: string; path?: string; limit?: number };
 
@@ -49,30 +42,15 @@ function formatFindResult(
 	theme: Theme,
 	showImages: boolean,
 	isError: boolean,
-): string {
+) {
 	const output = getTextOutput(result, showImages).trim();
-	let text = "";
-	if (output) {
-		const outputLines = output.split("\n");
-		const lines = isError ? outputLines : decoratePathListing(outputLines);
-		const maxLines = options.expanded ? lines.length : 20;
-		const displayLines = lines.slice(0, maxLines);
-		const remaining = lines.length - maxLines;
-		text += `\n${displayLines.map((line) => theme.fg("toolOutput", line)).join("\n")}`;
-		if (remaining > 0) {
-			text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
-		}
-	}
 
 	const resultLimit = result.details?.resultLimitReached;
 	const truncation = result.details?.truncation;
-	if (resultLimit || truncation?.truncated) {
-		const warnings: string[] = [];
-		if (resultLimit) warnings.push(`${resultLimit} results limit`);
-		if (truncation?.truncated) warnings.push(`${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit`);
-		text += `\n${theme.fg("warning", `[Truncated: ${warnings.join(", ")}]`)}`;
-	}
-	return text;
+	const warnings: string[] = [];
+	if (resultLimit) warnings.push(`${resultLimit} results limit`);
+	if (truncation?.truncated) warnings.push(`${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit`);
+	return renderListResult(output, options.expanded ? Infinity : 20, warnings, theme, isError);
 }
 
 export const findRenderers: ToolRenderers = {
@@ -82,16 +60,12 @@ export const findRenderers: ToolRenderers = {
 		return text;
 	},
 	renderResult(result, options, theme, context) {
-		const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-		text.setText(
-			formatFindResult(
-				result as ToolRenderResultLike<FindToolDetails | undefined>,
-				options,
-				theme,
-				context.showImages,
-				context.isError,
-			),
+		return formatFindResult(
+			result as ToolRenderResultLike<FindToolDetails | undefined>,
+			options,
+			theme,
+			context.showImages,
+			context.isError,
 		);
-		return text;
 	},
 };

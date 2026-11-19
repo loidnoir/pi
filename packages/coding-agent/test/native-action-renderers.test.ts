@@ -86,7 +86,8 @@ describe("sub-agent presentation", () => {
 			renderSubagentCall({ action, id, agent: "scout", task: "Inspect parser", async: true }, theme, context()),
 		);
 		expect(rendered).toContain(label);
-		expect(rendered).toContain(action === "start" ? "scout" : id.slice(0, 8));
+		if (action === "start") expect(rendered).toContain("scout");
+		expect(rendered).not.toContain(id.slice(0, 8));
 		expect(rendered).toContain("Inspect parser");
 		expect(rendered).not.toContain("{");
 		expect(rendered).not.toContain("Completed");
@@ -179,12 +180,12 @@ describe("sub-agent presentation", () => {
 			render({ agents: [{ name: "scout", description: "Read source" }], total: 4, nextSkip: 1 }, "roles"),
 		).toContain("4 agent roles · more available\nscout — Read source");
 		expect(render({ agents: [agent], total: 1 }, "list")).toContain(
-			"1 sub-agents\n12345678 · running · Fix renderer",
+			`1 sub-agents\n${icon("agent")} Sub-agent Fix renderer · Running`,
 		);
 		expect(
 			render({ text: "Original child history", offset: 0, nextOffset: 22, totalCharacters: 50 }, "history"),
-		).toContain("Agent history 12345678 · more available\nOriginal child history");
-		expect(render({ deleted: id }, "delete")).toContain("Deleted sub-agent 12345678");
+		).toContain("Agent history · more available\nOriginal child history");
+		expect(render({ deleted: id }, "delete")).not.toContain(id.slice(0, 8));
 		expect(render({ agents: [] }, "roles")).toContain("No agent roles");
 		expect(render({ agents: [] }, "list")).toContain("No sub-agents");
 	});
@@ -212,7 +213,7 @@ describe("sub-agent presentation", () => {
 			);
 		expect(
 			render({ agents: [agent, agent, agent, { ...agent, status: "failed", error: "Late child error" }] }),
-		).toContain("4 sub-agents · errors\n12345678 · failed · Fix renderer · Error: Late child error");
+		).toContain(`4 sub-agents · errors\n${icon("agent")} Sub-agent Fix renderer · Failed · Error: Late child error`);
 		expect(render({ agent: { ...agent, status: "completed" }, text: "", truncated: false })).toContain(
 			"No result text",
 		);
@@ -258,9 +259,10 @@ describe("job presentation", () => {
 		["rename", "Rename job"],
 		["restart", "Restart job"],
 		["delete", "Delete job"],
-	])("renders the %s action with a short target", (action, label) => {
+	])("renders the %s action without its target ID", (action, label) => {
 		const rendered = text(renderJobsCall({ action, id }, theme, context()));
-		expect(rendered).toContain(`${label} · 12345678`);
+		expect(rendered).toContain(label);
+		expect(rendered).not.toContain(id.slice(0, 8));
 		expect(rendered).not.toContain("{");
 	});
 
@@ -276,7 +278,7 @@ describe("job presentation", () => {
 		expect(text(renderJobsCall(args, theme, context(args, { argsComplete: false })))).toContain("List jobs");
 		expect(
 			text(renderJobsCall({ ...args, action: "restart", id, command: "node test.js" }, theme, context())),
-		).toContain("Restart job · 12345678\n\nnode test.js");
+		).toContain("Restart job\n\nnode test.js");
 	});
 
 	it("shows rename, replacement command and project scope", () => {
@@ -342,9 +344,9 @@ describe("job presentation", () => {
 	it("renders lists, deletion and empty logs", () => {
 		const render = (value: unknown) =>
 			text(renderJobsResult(output(value), { expanded: false, isPartial: false }, theme, context()));
-		expect(render({ jobs: [job] })).toContain("1 background jobs\n12345678 · running · Type check");
+		expect(render({ jobs: [job] })).toContain(`1 background jobs\n${icon("job")} Job Type check · Running`);
 		expect(render({ jobs: [] })).toContain("No background jobs");
-		expect(render({ deleted: id })).toContain("Deleted job 12345678");
+		expect(render({ deleted: id })).not.toContain(id.slice(0, 8));
 		expect(
 			text(
 				renderJobsResult(
@@ -354,7 +356,7 @@ describe("job presentation", () => {
 					context({ action: "delete", id }),
 				),
 			),
-		).toContain("Deleted job 12345678");
+		).not.toContain(id.slice(0, 8));
 		expect(render({ job, log: { text: "", path: "/tmp/log", truncated: false } })).toContain("No log output");
 	});
 
@@ -374,7 +376,7 @@ describe("job presentation", () => {
 			jobs: [job, job, job, { ...job, runtime: { state: "failed", error: "Late worker error" } }],
 		});
 		expect(text(renderJobsResult(result, { expanded: false, isPartial: false }, theme, context()))).toContain(
-			"4 background jobs · errors\n12345678 · failed · Type check · Error: Late worker error",
+			`4 background jobs · errors\n${icon("job")} Job Type check · Failed · Error: Late worker error`,
 		);
 	});
 
@@ -412,7 +414,7 @@ describe("native action section spacing", () => {
 			},
 			title: () => `${icon("agent")} Start sub-agent · worker`,
 			description: "Review parser behavior",
-			status: "Queued · worker 12345678 · Review parser behavior",
+			status: () => `${icon("agent")} Sub-agent Review parser behavior · Queued`,
 			preview: "Submitted; this is not a completion result.",
 		},
 		{
@@ -421,9 +423,9 @@ describe("native action section spacing", () => {
 			result: renderJobsResult,
 			args: { action: "restart", id, command: "node test.js" },
 			value: { job: { ...job, command: "node test.js", runtime: { state: "starting" } } },
-			title: () => `${icon("job")} Restart job · 12345678`,
+			title: () => `${icon("job")} Restart job`,
 			description: "node test.js",
-			status: "Starting · 12345678 · Type check",
+			status: () => `${icon("job")} Job Type check · Starting`,
 			preview: "node test.js",
 		},
 	])("separates the $name title, description, and status controls", (entry) => {
@@ -437,7 +439,15 @@ describe("native action section spacing", () => {
 		const lines = stripVTControlCharacters([...call.render(180), ...result.render(180)].join("\n"))
 			.split("\n")
 			.map((line) => line.trimEnd());
-		expect(lines).toEqual([entry.title(), "", entry.description, "", entry.status, entry.preview, "alt+e to expand"]);
+		expect(lines).toEqual([
+			entry.title(),
+			"",
+			entry.description,
+			"",
+			entry.status(),
+			entry.preview,
+			"alt+e to expand",
+		]);
 	});
 
 	it("omits missing call descriptions but separates message controls from their heading", () => {
@@ -454,7 +464,7 @@ describe("native action section spacing", () => {
 		const result = output({ agent, text: "Original evidence", truncated: false });
 		const expanded = renderSubagentResult(result, { expanded: true, isPartial: false }, theme, context(args));
 		expect(text(expanded)).toContain(
-			`Running · worker 12345678 · Fix renderer\n\n${JSON.stringify({ agent, text: "Original evidence", truncated: false }, null, 2)}`,
+			`${icon("agent")} Sub-agent Fix renderer · Running\n\n${JSON.stringify({ agent, text: "Original evidence", truncated: false }, null, 2)}`,
 		);
 	});
 });
@@ -533,6 +543,20 @@ describe("native renderer fallbacks and integration", () => {
 
 describe("automatic completion presentation", () => {
 	const agentContent = `Sub-agent ${id} (reviewer): Review renderer\nRun 1: completed.\nChild usage: input 10, output 20.\nIndependent history: /tmp/agent.jsonl\n\nFound a rendering bug.\n${"Original evidence ".repeat(100)}`;
+	it("preserves punctuation in a sub-agent name and hides job IDs in log paths until expanded", () => {
+		const agentNotice = message(
+			agentContent.replace("Review renderer", "Fix parse(): empty input"),
+			"subagent-result",
+		);
+		expect(text(renderSubagentMessage(agentNotice, messageOptions(), theme)!)).toContain(
+			"Sub-agent Fix parse(): empty input · Completed",
+		);
+		const path = `/jobs/${id}/output.log`;
+		const jobNotice = message(`Background job ${id} ("Checks"): failed. Full output: ${path}`, "background-job");
+		expect(text(renderJobMessage(jobNotice, messageOptions(), theme)!)).not.toContain(id.slice(0, 8));
+		expect(text(renderJobMessage(jobNotice, messageOptions(true), theme)!)).toContain(path);
+	});
+
 	const jobContent = `Background job ${id} (${JSON.stringify("Renderer checks")}): failed. Full output: /tmp/job.log`;
 
 	it.each([false, true])("pads job and agent messages like built-in blocks (expanded=%s)", (expanded) => {
@@ -559,7 +583,8 @@ describe("automatic completion presentation", () => {
 		const notice = message(agentContent, "subagent-result", { id, run: 1, status: "completed" });
 		const before = JSON.stringify(notice);
 		const collapsed = renderSubagentMessage(notice, messageOptions(), theme)!;
-		expect(text(collapsed)).toContain("Sub-agent 12345678 · Completed · reviewer: Review renderer");
+		expect(text(collapsed)).toContain(`${icon("agent")} Sub-agent Review renderer · Completed`);
+		expect(text(collapsed)).not.toContain(id.slice(0, 8));
 		expect(text(collapsed)).toContain("Found a rendering bug.");
 		const lines = text(collapsed)
 			.split("\n")
@@ -590,10 +615,10 @@ describe("automatic completion presentation", () => {
 			const notice = message(jobContent, "background-job", { jobId: id, state: "failed" });
 			const before = JSON.stringify(notice);
 			const rendered = text(renderJobMessage(notice, messageOptions(), theme)!);
-			expect(rendered).toContain("Job 12345678 · Failed · Renderer checks");
+			expect(rendered).not.toContain(id.slice(0, 8));
 			expect(rendered).toContain("Full output: /tmp/job.log");
 			expect(rendered.split("\n").map((line) => line.trim())).toEqual([
-				`${icon("job")}${preset === "nerd" ? "  " : " "}Job 12345678 · Failed · Renderer checks`,
+				`${icon("job")}${preset === "nerd" ? "  " : " "}Job Renderer checks · Failed`,
 				"",
 				"Full output: /tmp/job.log",
 				"alt+e to expand",

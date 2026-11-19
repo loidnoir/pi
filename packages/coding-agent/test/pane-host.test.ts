@@ -147,7 +147,7 @@ describe("remote pane live frames", () => {
 		const list = vi.spyOn(manager, "list");
 		vi.spyOn(manager, "watch").mockReturnValue(() => {});
 		const test = await fixture((controls) => new JobsView(manager, job.cwd, controls, () => {}, id), true);
-		expect(test.frames[0].join("\n")).toContain("No background jobs");
+		expect(test.frames[0].join("\n")).toContain("Loading job…");
 		inspected.resolve(job);
 		await vi.waitFor(() => expect(test.frames.at(-1)?.join("\n")).toContain("OWN_JOB_LOG_CONTENT"));
 		expect(test.frames.at(-1)?.join("\n")).toContain(id);

@@ -120,6 +120,11 @@ describe("job pane completion cleanup", () => {
 			test.inspect.mockImplementation(async (jobId) => job(jobId === id ? state : "running", jobId));
 			test.watchers.get(id)?.("runtime.json");
 			await vi.waitFor(() => expect(active.close).toHaveBeenCalledTimes(1));
+			expect(vi.mocked(test.context.ui.setStatus).mock.calls).toEqual([
+				["jobs", "1 job"],
+				["jobs", "2 jobs"],
+				["jobs", "1 job"],
+			]);
 			expect(unrelated.close).not.toHaveBeenCalled();
 			expect(test.notices).toHaveBeenCalledWith(
 				expect.objectContaining({ customType: "background-job", content: expect.stringContaining(state) }),

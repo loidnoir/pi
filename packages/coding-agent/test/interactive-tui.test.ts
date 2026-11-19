@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import type { FullscreenExitOutput, TuiMode } from "../src/core/settings-manager.ts";
+import { CustomEditor } from "../src/modes/interactive/components/custom-editor.ts";
 import {
 	BranchSummaryStatusIndicator,
 	CompactionStatusIndicator,
@@ -17,7 +18,8 @@ import {
 	createInteractiveTuiReference,
 	InteractiveMode,
 } from "../src/modes/interactive/interactive-mode.ts";
-import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { getEditorTheme, initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../src/utils/ansi.ts";
 
 const clipboardMocks = vi.hoisted(() => ({
 	copyToClipboard: vi.fn<(text: string) => Promise<void>>(),
@@ -490,6 +492,66 @@ type InteractiveModePrototype = {
 const interactiveModePrototype = InteractiveMode.prototype as unknown as InteractiveModePrototype;
 
 describe("clear-on-shrink status spacing", () => {
+	it.each(["regular", "fullscreen"] as const)("routes Working once without moving tasks or focus in %s", (tuiMode) => {
+		initTheme("dark");
+		const ui = createInteractiveTui({
+			tuiMode,
+			showHardwareCursor: false,
+			logDirectory: "/tmp",
+			terminal: new RecordingTerminal(),
+		});
+		const args = [ui, getEditorTheme(), KeybindingsManager.create()] as const;
+		class InputOnlyEditor extends CustomEditor {}
+		class OwnBorderEditor extends CustomEditor {
+			protected override renderTopBorder(width: number): string {
+				return "=".repeat(width);
+			}
+		}
+		const defaultEditor = new CustomEditor(...args, { embedWorkingStatus: true });
+		const statusContainer = new Container();
+		const working = new WorkingStatusIndicator(ui, "Working", { frames: ["*"] });
+		const retry = new RetryStatusIndicator(ui, 1, 3, 5000);
+		try {
+			for (const [editor, embedded] of [
+				[defaultEditor, true],
+				[new InputOnlyEditor(...args), true],
+				[new OwnBorderEditor(...args), false],
+				[new CustomEditor(...args, { embedWorkingStatus: false }), false],
+			] as const) {
+				const context: ClearStatusContext = {
+					editor,
+					defaultEditor,
+					statusContainer,
+					activeStatusIndicator: undefined,
+					activeWorkingIndicatorEmbedded: false,
+					options: { tuiMode },
+					ui,
+					idleStatus: new Text("", 0, 0),
+					setEditorWorkingStatusIndicator: interactiveModePrototype.setEditorWorkingStatusIndicator,
+				};
+				const layout = new Container();
+				layout.addChild(statusContainer);
+				layout.addChild(new Text("Tasks", 0, 0));
+				layout.addChild(editor);
+				ui.setFocus(editor);
+				interactiveModePrototype.showStatusIndicator.call(context, working);
+				const rows = layout.render(30).map(stripAnsi);
+				expect(rows.filter((row) => row.includes("Working"))).toHaveLength(1);
+				if (embedded) {
+					expect(rows[0]!.trim()).toBe("Tasks");
+					expect(rows[1]).toBe(`${"─".repeat(17)} * Working ──`);
+				} else expect(statusContainer.children).toEqual([working]);
+				expect(ui.getFocusedComponent()).toBe(editor);
+				interactiveModePrototype.showStatusIndicator.call(context, retry);
+				expect(statusContainer.children).toEqual(editor === defaultEditor ? [] : [retry]);
+				expect(layout.render(30).join("\n")).not.toContain("Working");
+			}
+		} finally {
+			working.dispose();
+			retry.dispose();
+		}
+	});
+
 	it.each([true, false])("routes every status through the editor opt-in (%s)", (embedWorkingStatus) => {
 		initTheme("dark");
 		const tui = { requestRender: vi.fn() } as unknown as TUI;

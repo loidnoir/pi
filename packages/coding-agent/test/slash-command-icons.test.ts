@@ -19,7 +19,6 @@ const builtinIcons: Record<string, IconName> = {
 	model: "model",
 	tree: "tree",
 	thinking: "thinking",
-	effort: "thinking",
 	"scoped-models": "model",
 	export: "export",
 	import: "import",

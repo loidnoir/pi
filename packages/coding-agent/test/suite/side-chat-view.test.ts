@@ -242,7 +242,7 @@ describe("native side chat presentation", () => {
 		expect(agent.state.model.id).toBe("pane-second");
 		view.handleInput("\x19");
 		expect(agent.state.thinkingLevel).toBe("low");
-		view.ask("/effort high");
+		view.ask("/thinking high");
 		expect(agent.state.thinkingLevel).toBe("high");
 		view.ask("/thinking off");
 		view.ask("/thinking");
@@ -251,9 +251,7 @@ describe("native side chat presentation", () => {
 		view.handleInput("low");
 		view.handleInput("\r");
 		expect(agent.state.thinkingLevel).toBe("low");
-		view.ask("/effort");
-		view.handleInput("\x1b");
-		view.ask("/effort invalid");
+		view.ask("/thinking invalid");
 		expect(text(view)).toContain("Available effort levels: off, low, high");
 		expect(agent.state.thinkingLevel).toBe("low");
 		agent.state.messages = [
@@ -270,6 +268,11 @@ describe("native side chat presentation", () => {
 		expect(text(view)).toContain("Reasoning detail");
 		expect(harness.session.agent.state.model).toBe(originalMainModel);
 		expect(harness.session.agent.state.thinkingLevel).toBe("off");
+		harness.setResponses([fauxAssistantMessage("Ordinary side-chat reply")]);
+		view.ask("/effort high");
+		await agent.waitForIdle();
+		expect(text(view)).toContain("Ordinary side-chat reply");
+		expect(agent.state.thinkingLevel).toBe("low");
 		expect(harness.getPendingResponseCount()).toBe(0);
 	});
 
@@ -304,7 +307,7 @@ describe("native side chat presentation", () => {
 		view.handleInput("\r");
 		view.handleInput("\x10");
 		view.handleInput("\x1b[Z");
-		view.ask("/effort high");
+		view.ask("/thinking high");
 		view.ask("/model busy-second");
 		expect(runtime.setModel).not.toHaveBeenCalled();
 		expect(runtime.setThinkingLevel).not.toHaveBeenCalled();
@@ -314,7 +317,7 @@ describe("native side chat presentation", () => {
 		await active;
 		await agent.waitForIdle();
 		await vi.waitFor(() => {
-			view.ask("/effort high");
+			view.ask("/thinking high");
 			expect(runtime.setThinkingLevel).toHaveBeenCalledWith("high");
 		});
 	});

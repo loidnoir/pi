@@ -140,7 +140,7 @@ describe("chat action icons", () => {
 				".",
 			);
 			const output =
-				"Job 12345678-abcd\nState: running\nFull output: /tmp/job.log\nUse jobs to inspect or control it.";
+				"Job 12345678-abcd (Assigned name)\nState: running\nFull output: /tmp/job.log\nUse jobs to inspect or control it.";
 			component.updateResult({
 				content: [{ type: "text", text: output }],
 				details: { jobId: "12345678-abcd", jobState: "running" },
@@ -155,7 +155,8 @@ describe("chat action icons", () => {
 				for (const width of [4, 8, 12, 30])
 					for (const line of component.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 			}
-			expect(collapsed).toContain("Job 12345678 · running");
+			expect(collapsed).toContain(`${icon("job")}  Job Assigned name · Running`);
+			expect(collapsed).not.toContain("12345678");
 			expect(collapsed).not.toContain("completed");
 			expect(collapsed).not.toContain("/tmp/job.log");
 			component.setExpanded(true);

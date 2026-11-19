@@ -202,14 +202,21 @@ export class FooterComponent implements Component {
 				: truncateToWidth(tokens, leftWidth, ellipsis);
 
 		// Extension statuses use only spare space so they cannot displace the main footer fields.
-		const statusWidth = leftWidth - visibleWidth(left) - 1;
+		const statusWidth = leftWidth - visibleWidth(left) - visibleWidth(separator);
 		if (extensionStatuses.size > 0 && statusWidth > 0) {
 			const statuses = Array.from(extensionStatuses.entries())
 				.filter(([key]) => key !== "fast" || !fastActive)
 				.sort(([a], [b]) => a.localeCompare(b))
-				.map(([key, text]) => `${key === "recovery" ? iconPrefix("pause") : ""}${sanitizeStatusText(text)}`)
-				.join(" ");
-			if (statuses) left += ` ${truncateToWidth(statuses, statusWidth, ellipsis)}`;
+				.map(([key, text]) => {
+					const label = sanitizeStatusText(text);
+					if (!visibleWidth(label)) return "";
+					const glyph =
+						key === "jobs" ? "job" : key === "subagents" ? "agent" : key === "recovery" ? "pause" : undefined;
+					return glyph ? iconPrefix(glyph) + label : label;
+				})
+				.filter(Boolean)
+				.join(theme.fg("dim", separator));
+			if (statuses) left += theme.fg("dim", separator) + truncateToWidth(statuses, statusWidth, ellipsis);
 		}
 
 		const padding = rightWidth > 0 ? " ".repeat(width - visibleWidth(left) - rightWidth) : "";

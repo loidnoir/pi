@@ -137,7 +137,7 @@ describe("native pause menu integration", () => {
 		await run;
 		const activity = getSubagentActivity(harness.sessionManager)!;
 		expect(activity.list()).toEqual(["running"]);
-		expect(setStatus).toHaveBeenCalledWith("subagents", "1 active sub-agent");
+		expect(setStatus).toHaveBeenCalledWith("subagents", "1 agent");
 		const calls = harness.faux.state.callCount;
 		const command = harness.session.prompt("/pause");
 		const panel = await ready;

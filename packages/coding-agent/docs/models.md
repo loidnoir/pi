@@ -26,11 +26,11 @@ Keep `auth.json` and any credential commands private. Project settings and exten
 
 ## Select a model
 
-Run `/model` to open the model dashboard. It lists the main thread, the default for new BTW chats, and each sub-agent profile, with effective model, thinking level, and fast-mode state. Select a target to edit a draft, choose **Session**, **Project**, or **Global** scope, then **Apply**. Main-thread changes apply now; project/global also save startup defaults. BTW/profile changes affect only new chats or launches, never existing chats, submitted children, or resumed children.
+Run `/model` and press **Enter** on **Default** (the main thread), **Btw** (new side chats), or **Agent <name>** (new launches for that profile). Use **↑/↓** to select a setting and **Tab** to cycle its value. **Esc** returns to the list with your edits intact. Close the dashboard to save; minimizing it does not save. Changes to **Default** update the current conversation, and **Project** or **Global** scope also saves startup defaults. Btw and agent changes do not modify existing chats or children.
 
 The dashboard uses the shared Rex view when available and a Pi overlay otherwise. Presentation flags work as with `/agents`: `/model --tui`, `/model --rex --floating`, or `/model --split`. The model-selection shortcut opens the same dashboard. `/model provider/model-id` still switches the main model directly; a search argument opens the searchable model picker. Pickers list models whose providers have usable authentication.
 
-Each field can inherit the lower scope/profile or explicitly inherit the main thread. **Reset scope** clears that scope's draft; Apply saves the reset. Main resets restore startup/lower-scope defaults. The view shows provider, context limit, and token prices. Thinking choices follow model capabilities. Fast mode is Codex priority tier, with higher usage; it is inactive on unsupported models. Existing per-model thinking defaults remain in effect when switching models.
+Cycle a field back to its inherited value to remove its override. Btw and agent fields can also explicitly follow the main thread. The model specs show the context limit and token prices. Thinking choices follow model capabilities. Fast mode is Codex priority tier, with higher usage; it is inactive on unsupported models. Existing per-model thinking defaults remain in effect when switching models.
 
 Run `/thinking` to select the thinking level for the current model. Press `Ctrl+S` there to save the startup level. Pi limits the choices to levels supported by the selected model.
 

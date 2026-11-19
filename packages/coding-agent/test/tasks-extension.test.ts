@@ -113,7 +113,9 @@ describe("tasks widget and pane lifetime", () => {
 		widget.invalidate();
 		expect(test.widgets.at(-1)).toBe(widget);
 		expect(widget.render(160)).not.toEqual(dark);
-		expect(widget.render(160)[0]).toBe(theme.fg("accent", theme.bold("TODO")));
+		const [header] = widget.render(160);
+		expect(header).toContain(theme.fg("accent", theme.bold("Tasks")));
+		expect(stripAnsi(header)).toBe("Tasks · 0/1 completed · 1 active");
 	});
 
 	it("hides while opening and minimized, reuses the view, and restores latest state only on close", async () => {

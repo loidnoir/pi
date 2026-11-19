@@ -49,6 +49,7 @@ interface StatusContext extends StatusMethods {
 	unsubscribeRecovery: (() => void) | undefined;
 	options: { tuiMode: "regular" };
 	isInitialized: boolean;
+	closeModelDashboard(): Promise<void>;
 	disposeActiveSelector(): void;
 	themeController: { disableAutoSync(): void };
 	clearExtensionTerminalInputListeners(): void;
@@ -109,6 +110,7 @@ async function fixture(embedded = false, tools?: AgentTool[]) {
 		unsubscribeRecovery: undefined,
 		options: { tuiMode: "regular" },
 		isInitialized: false,
+		async closeModelDashboard() {},
 		disposeActiveSelector() {},
 		themeController: { disableAutoSync() {} },
 		clearExtensionTerminalInputListeners() {},
@@ -170,8 +172,8 @@ describe("interactive held-execution status", () => {
 		expect(f.harness.faux.state.callCount).toBe(2);
 	});
 
-	it("shows an idle-held session, survives working cleanup, and respects visibility", async () => {
-		const f = await fixture();
+	it.each([true, false])("respects held status visibility and cleanup (embedded=%s)", async (embedded) => {
+		const f = await fixture(embedded);
 		expect(f.context.activeStatusIndicator).toBeUndefined();
 		await f.harness.session.recovery.pause();
 		expect(f.text()).toContain(`${icon("pause")} Paused`);
@@ -179,6 +181,8 @@ describe("interactive held-execution status", () => {
 		expect(f.text()).toContain("Paused");
 		f.context.setWorkingVisible(false);
 		expect(f.context.activeStatusIndicator).toBeUndefined();
+		expect(f.text()).not.toContain("Paused");
+		if (embedded) expect(f.context.statusContainer.render(120)).toEqual([]);
 		f.context.setWorkingVisible(true);
 		expect(f.text()).toContain("Paused");
 		f.harness.session.recovery.resume();

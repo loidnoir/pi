@@ -158,6 +158,8 @@ On native Windows, `app.suspend` has no default because Windows terminals do not
 | `app.thinking.save` | `ctrl+s` | Save current thinking level to settings |
 | `app.thinking.toggle` | `ctrl+t` | Collapse or expand thinking blocks |
 
+In the `/model` dashboard, use `tui.select.up`/`down` to highlight a setting and `tui.input.tab` to cycle its value. Closing the dashboard saves changed settings; no save shortcut is needed there.
+
 ### Display and Message Queue
 
 | Keybinding id | Default | Description |

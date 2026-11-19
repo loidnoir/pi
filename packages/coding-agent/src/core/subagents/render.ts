@@ -84,15 +84,7 @@ export function renderSubagentCall(
 				theme.bold(
 					`${iconPrefix(input.action === "wait" ? "clock" : "agent")}${labels[input.action ?? ""] ?? "Sub-agent"}`,
 				),
-			) +
-			theme.fg(
-				"accent",
-				input.action === "start"
-					? ` · ${compactPreview(input.agent ?? "worker")}`
-					: input.id
-						? ` · ${input.id.slice(0, 8)}`
-						: "",
-			),
+			) + theme.fg("accent", input.action === "start" ? ` · ${compactPreview(input.agent ?? "worker")}` : ""),
 		preview: input.task ? theme.fg("muted", compactPreview(input.task)) : undefined,
 		expandedText: context.expanded ? JSON.stringify(args, null, 2) : undefined,
 	}));
@@ -113,7 +105,6 @@ export function renderSubagentResult(
 		const summary = summarize(
 			output,
 			args.action ?? undefined,
-			args.id ?? undefined,
 			raw,
 			options.isPartial,
 			context.isError || result.isError === true,
@@ -131,7 +122,7 @@ export function renderSubagentResult(
 /** Present automatic child results compactly while retaining the exact delivered content and metadata. */
 export const renderSubagentMessage: MessageRenderer = (message, options, theme) => {
 	const raw = contentText(message.content);
-	const heading = /^Sub-agent (\S+) \(([^\n]*)\): ([^\n]*)/u.exec(raw);
+	const heading = /^Sub-agent \S+ \(([^\n]*?)\): ([^\n]*)/u.exec(raw);
 	const status = /^Run \d+: ([^\n]+)\.$/mu.exec(raw)?.[1] ?? "unknown";
 	const error = /^Error: ([^\n]*)/mu.exec(raw)?.[1];
 	const bodyStart = raw.indexOf("\n\n");
@@ -146,12 +137,8 @@ export const renderSubagentMessage: MessageRenderer = (message, options, theme) 
 		() => ({
 			kind: "message",
 			heading:
-				theme.fg(
-					"customMessageLabel",
-					theme.bold(`${iconPrefix("agent")}Sub-agent${heading ? ` ${heading[1].slice(0, 8)}` : ""}`),
-				) +
-				theme.fg(stateColor(status), ` · ${stateLabel(status)}`) +
-				(heading ? theme.fg("muted", ` · ${compactPreview(`${heading[2]}: ${heading[3]}`)}`) : ""),
+				theme.fg("customMessageLabel", theme.bold(agentTitle(heading?.[2] ?? "", heading?.[1] ?? ""))) +
+				theme.fg(stateColor(status), ` · ${stateLabel(status)}`),
 			preview: theme.fg(error ? "error" : "customMessageText", compactPreview(preview)),
 			expandedText: options.expanded
 				? raw + (message.details === undefined ? "" : `\n\n${JSON.stringify(message.details, null, 2)}`)
@@ -174,10 +161,18 @@ function decodeResult(raw: string): SubagentRenderResult | undefined {
 	}
 }
 
+function agentTitle(label: string, role: string): string {
+	const name = compactPreview(label) || compactPreview(role);
+	return `${iconPrefix("agent")}Sub-agent${name ? ` ${name}` : ""}`;
+}
+
+function agentHeading(agent: Static<typeof agentSchema>): string {
+	return `${agentTitle(agent.label, agent.role)} · ${stateLabel(agent.status)}`;
+}
+
 function summarize(
 	output: SubagentRenderResult | undefined,
 	action: string | undefined,
-	id: string | undefined,
 	raw: string,
 	partial: boolean,
 	isError: boolean,
@@ -192,7 +187,7 @@ function summarize(
 	if (output?.agent) {
 		const agent = output.agent;
 		return {
-			heading: `${stateLabel(agent.status)} · ${agent.role} ${agent.id.slice(0, 8)} · ${agent.label}`,
+			heading: agentHeading(agent),
 			preview: agent.error
 				? `Error: ${agent.error}`
 				: output.text !== undefined
@@ -213,23 +208,22 @@ function summarize(
 					? "No agent roles"
 					: "No sub-agents",
 			preview: failed
-				? `${failed.id.slice(0, 8)} · ${failed.status} · ${failed.label}${failed.error ? ` · Error: ${failed.error}` : ""}`
+				? `${agentHeading(failed)}${failed.error ? ` · Error: ${failed.error}` : ""}`
 				: output.agents
 						.slice(0, 3)
 						.map((agent) =>
 							"name" in agent
 								? `${agent.name}${agent.description ? ` — ${agent.description}` : ""}`
-								: `${agent.id.slice(0, 8)} · ${agent.status} · ${agent.label}`,
+								: agentHeading(agent),
 						)
 						.join("\n"),
 			color: failed ? "error" : "muted",
 		};
 	}
-	if (output?.deleted)
-		return { heading: `Deleted sub-agent ${output.deleted.slice(0, 8)}`, preview: "", color: "success" };
+	if (output?.deleted) return { heading: "Deleted sub-agent", preview: "", color: "success" };
 	if (output?.text !== undefined)
 		return {
-			heading: `Agent history${id ? ` ${id.slice(0, 8)}` : ""}${output.nextOffset === undefined ? "" : " · more available"}`,
+			heading: `Agent history${output.nextOffset === undefined ? "" : " · more available"}`,
 			preview: output.text || "No history text",
 			color: "muted",
 		};

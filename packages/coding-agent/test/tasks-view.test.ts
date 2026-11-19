@@ -120,7 +120,7 @@ describe("task tree monitors", () => {
 		expect(plain(tui.render(80))).toContain("├─ [x] #1 Finished");
 		bar.handleInput("\x1bOR");
 		bar.handleInput("\x1b[6;3~");
-		expect(plain(tui.render(80))).toContain("TODO");
+		expect(plain(tui.render(80))).toContain("Tasks · 1/3 completed · 1 active · 1 cancelled");
 		expect(plain(tui.render(80))).toContain("Unsubmitted 日本語 draft");
 		expect(editor.getText()).toBe("Unsubmitted 日本語 draft");
 		bar.handleInput("\x1bOR");
@@ -132,13 +132,14 @@ describe("task tree monitors", () => {
 
 	it("shows unfinished work and finished history in the compact view and retains expansion", () => {
 		const { bar, store, render } = fixture();
-		expect(plain(bar.render(160))).toContain("TODO\n└─ Tasks · 1/3 completed · 1 active · 1 cancelled");
-		expect(plain(bar.render(160))).toContain("Working");
 		const compact = plain(bar.render(160));
-		expect(compact).toContain("   ├─ [x] #1 Finished");
-		expect(compact).toContain("   ├─ [ ] #2 Working");
-		expect(compact).toContain("   ├─ [ ] #3 Next");
-		expect(compact).toContain("   └─ [-] #4 Obsolete (cancelled)");
+		expect(compact.split("\n")).toEqual([
+			"Tasks · 1/3 completed · 1 active · 1 cancelled",
+			"├─ [x] #1 Finished",
+			"├─ [ ] #2 Working",
+			"├─ [ ] #3 Next",
+			"└─ [-] #4 Obsolete (cancelled)",
+		]);
 		expect(compact).not.toMatch(/^(?:now|next|done|skip) /mu);
 		expect(bar.handleInput("\x1bOR")).toBe(true);
 		expect(plain(bar.render(160))).toContain("Finished");
@@ -179,9 +180,9 @@ describe("task tree monitors", () => {
 		);
 		const before = JSON.stringify(store.getSnapshot());
 		const lines = bar.render(160).map(stripVTControlCharacters);
-		expect(lines).toHaveLength(7);
-		expect(lines.slice(2).map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([2, 3, 5, 6, 10]);
-		expect(lines[6]).toContain("└─ [x] #10 Latest completion");
+		expect(lines).toHaveLength(6);
+		expect(lines.slice(1).map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([2, 3, 5, 6, 10]);
+		expect(lines[5]).toBe("└─ [x] #10 Latest completion");
 		expect(JSON.stringify(store.getSnapshot())).toBe(before);
 	});
 
@@ -208,9 +209,9 @@ describe("task tree monitors", () => {
 			() => {},
 		);
 		const lines = bar.render(160).map(stripVTControlCharacters);
-		expect(lines).toHaveLength(7);
-		expect(lines.slice(2).map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([6, 7, 8, 9, 10]);
-		expect(lines.slice(2).every((line) => /(?:├|└)─ \[x\]/u.test(line))).toBe(true);
+		expect(lines).toHaveLength(6);
+		expect(lines.slice(1).map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([6, 7, 8, 9, 10]);
+		expect(lines.slice(1).every((line) => /^[├└]─ \[x\]/u.test(line))).toBe(true);
 	});
 
 	it("keeps compact sibling order and full child progress when some children are omitted", () => {
@@ -229,13 +230,13 @@ describe("task tree monitors", () => {
 			() => {},
 		);
 		const before = JSON.stringify(store.getSnapshot());
-		const rows = bar.render(160).slice(2).map(stripVTControlCharacters);
+		const rows = bar.render(160).slice(1).map(stripVTControlCharacters);
 		expect(rows.map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([2, 6, 8, 9, 3]);
-		expect(rows[0]).toBe("   ├─ [ ] #2 Working · children 2/4 completed · 1 cancelled");
-		expect(rows[1]).toBe("   │  ├─ [x] #6 Newest done child");
-		expect(rows[2]).toBe("   │  ├─ [ ] #8 Pending child");
-		expect(rows[3]).toBe("   │  └─ [ ] #9 Active child");
-		expect(rows[4]).toBe("   └─ [ ] #3 Next");
+		expect(rows[0]).toBe("├─ [ ] #2 Working · children 2/4 completed · 1 cancelled");
+		expect(rows[1]).toBe("│  ├─ [x] #6 Newest done child");
+		expect(rows[2]).toBe("│  ├─ [ ] #8 Pending child");
+		expect(rows[3]).toBe("│  └─ [ ] #9 Active child");
+		expect(rows[4]).toBe("└─ [ ] #3 Next");
 		expect(JSON.stringify(store.getSnapshot())).toBe(before);
 	});
 
@@ -249,10 +250,10 @@ describe("task tree monitors", () => {
 			},
 			() => {},
 		);
-		const rows = bar.render(160).slice(2).map(stripVTControlCharacters);
+		const rows = bar.render(160).slice(1).map(stripVTControlCharacters);
 		expect(rows.map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([3, 2, 5, 6, 7]);
-		expect(rows[1]).toBe("   ├─ [ ] #2 (parent #4) Working · children 0/1 completed");
-		expect(rows[2]).toBe("   │  └─ [ ] #5 Nested work");
+		expect(rows[1]).toBe("├─ [ ] #2 (parent #4) Working · children 0/1 completed");
+		expect(rows[2]).toBe("│  └─ [ ] #5 Nested work");
 		expect(rows.some((line) => /#4 Obsolete/u.test(line))).toBe(false);
 	});
 
@@ -275,7 +276,7 @@ describe("task tree monitors", () => {
 				for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 				if (terminalRows >= 3 && width >= 12) expect(plain(lines)).toContain("#2");
 			}
-			if (terminalRows >= 12) expect(bar.render(40)).toHaveLength(Math.min(7, Math.floor(terminalRows / 3)));
+			if (terminalRows >= 12) expect(bar.render(40)).toHaveLength(Math.min(6, Math.floor(terminalRows / 3)));
 		}
 	});
 
@@ -286,14 +287,19 @@ describe("task tree monitors", () => {
 			() => {},
 		);
 		bar.handleInput("\x1bOR");
-		expect(bar.render(100).length).toBeLessThanOrEqual(10);
+		const expanded = bar.render(100).map(stripVTControlCharacters);
+		expect(expanded.length).toBeLessThanOrEqual(10);
+		expect(expanded.at(-1)).toContain("1–8/44 lines");
+		expect(plain(expanded)).not.toMatch(/f3|expand|collapse/iu);
 		expect(bar.handleInput("draft text")).toBe(false);
 		expect(bar.handleInput("\x1b[B")).toBe(false);
 		for (let index = 0; index < 20; index++) {
 			bar.handleInput("\x1b[6;3~");
 			bar.render(100);
 		}
-		expect(plain(bar.render(100))).toContain("Retained 39");
+		const lastPage = bar.render(100).map(stripVTControlCharacters);
+		expect(lastPage).toContain("└─ [ ] #44 Retained 39");
+		expect(lastPage.at(-1)).toContain("37–44/44 lines");
 		expect(state.scroll).toBeGreaterThan(0);
 		for (let index = 0; index < 20; index++) {
 			bar.handleInput("\x1b[5;3~");
@@ -315,7 +321,11 @@ describe("task tree monitors", () => {
 		const { bar, view, controls } = fixture();
 		expect(bar.handleInput("\x1bOR")).toBe(false);
 		expect(bar.handleInput("\x19")).toBe(true);
-		expect(plain(bar.render(160))).toContain("ctrl+y collapse");
+		const expanded = bar.render(160).map(stripVTControlCharacters);
+		expect(expanded.at(-1)).toContain("/ctrl+n scroll · /tasks view");
+		expect(plain(expanded)).not.toMatch(/ctrl\+y|f3|expand|collapse/iu);
+		expect(bar.handleInput("\x19")).toBe(true);
+		expect(plain(bar.render(160))).not.toContain("/tasks view");
 		view.render(80, 5);
 		view.handleInput("\n");
 		expect(plain(view.render(80, 5))).not.toContain("Finished");
@@ -369,7 +379,7 @@ describe("task tree monitors", () => {
 			}
 		}
 		const wrapped = plain(taskTreeLeaves(store.getSnapshot().tasks, 28, theme));
-		expect(wrapped).toContain("   │  ");
+		expect(wrapped).toContain("\n│  ");
 		expect(plain(view.render(160, 10))).toContain("Obsolete (cancelled)");
 	});
 
@@ -380,7 +390,7 @@ describe("task tree monitors", () => {
 			24,
 			theme,
 		).map(stripVTControlCharacters);
-		const prefix = `   └─ ${iconPrefix("checkboxUnchecked")}`;
+		const prefix = `└─ ${iconPrefix("checkboxUnchecked")}`;
 		expect(lines[0].startsWith(`${prefix}#1`)).toBe(true);
 		expect(lines.length).toBeGreaterThan(1);
 		for (const line of lines.slice(1)) expect(line.startsWith(" ".repeat(visibleWidth(prefix)))).toBe(true);
@@ -414,17 +424,18 @@ describe("task tree monitors", () => {
 		const before = JSON.stringify(snapshot);
 		const rows = taskTreeLeaves(snapshot.tasks, 160, theme).map(stripVTControlCharacters);
 		expect(rows.map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([1, 5, 9, 10, 6, 7, 2, 8, 3, 4]);
-		expect(rows[0]).toBe(`   ├─ ${iconPrefix("checkboxChecked")}#1 Finished · children 1/2 completed · 1 cancelled`);
-		expect(rows[1]).toBe(`   │  ├─ ${iconPrefix("checkboxUnchecked")}#5 First child · children 0/2 completed`);
-		expect(rows[2]).toBe(`   │  │  ├─ ${iconPrefix("checkboxUnchecked")}#9 Grandchild`);
-		expect(rows[3]).toBe(`   │  │  └─ ${iconPrefix("checkboxUnchecked")}#10 Grandchild sibling`);
-		expect(rows[5]).toContain(`   │  └─ ${iconPrefix("checkboxCancelled")}#7 Cancelled child (cancelled)`);
-		expect(rows[7]).toBe(`   │  └─ ${iconPrefix("checkboxUnchecked")}#8 Other child`);
-		expect(rows[9]).toBe(`   └─ ${iconPrefix("checkboxCancelled")}#4 Obsolete (cancelled)`);
+		expect(rows[0]).toBe(`├─ ${iconPrefix("checkboxChecked")}#1 Finished · children 1/2 completed · 1 cancelled`);
+		expect(rows[1]).toBe(`│  ├─ ${iconPrefix("checkboxUnchecked")}#5 First child · children 0/2 completed`);
+		expect(rows[2]).toBe(`│  │  ├─ ${iconPrefix("checkboxUnchecked")}#9 Grandchild`);
+		expect(rows[3]).toBe(`│  │  └─ ${iconPrefix("checkboxUnchecked")}#10 Grandchild sibling`);
+		expect(rows[5]).toBe(`│  └─ ${iconPrefix("checkboxCancelled")}#7 Cancelled child (cancelled)`);
+		expect(rows[7]).toBe(`│  └─ ${iconPrefix("checkboxUnchecked")}#8 Other child`);
+		expect(rows[9]).toBe(`└─ ${iconPrefix("checkboxCancelled")}#4 Obsolete (cancelled)`);
 		expect(taskSummary(snapshot)).toBe("2/8 completed · 1 active · 2 cancelled");
 		bar.handleInput("\x1bOR");
 		expect(plain(bar.render(160))).toContain("#9 Grandchild");
-		expect(plain(view.render(160, 30))).toContain(rows.join("\n"));
+		const pane = view.render(160, 30).map(stripVTControlCharacters);
+		expect(pane.slice(0, -1)).toEqual(["Tasks · 2/8 completed · 1 active · 2 cancelled", ...rows]);
 		// A completed parent still exposes all unfinished children; rendering never changes statuses.
 		expect(JSON.stringify(store.getSnapshot())).toBe(before);
 	});
@@ -467,12 +478,10 @@ describe("task tree monitors", () => {
 			const rows = taskTreeLeaves(tasks, 40, theme).map(stripVTControlCharacters);
 			const start = rows.findIndex((line) => line.includes("#5"));
 			const end = rows.findIndex((line) => line.includes("#6"));
-			expect(rows[start]).toContain(`   │  │  ├─ ${iconPrefix("checkboxUnchecked")}#5`);
+			expect(rows[start].startsWith(`│  │  ├─ ${iconPrefix("checkboxUnchecked")}#5`)).toBe(true);
 			expect(end - start).toBeGreaterThan(1);
 			for (const row of rows.slice(start + 1, end))
-				expect(row.startsWith(`   │  │  │  ${" ".repeat(visibleWidth(iconPrefix("checkboxUnchecked")))}`)).toBe(
-					true,
-				);
+				expect(row.startsWith(`│  │  │  ${" ".repeat(visibleWidth(iconPrefix("checkboxUnchecked")))}`)).toBe(true);
 			for (const width of [0, 1, 2, 3, 5, 9, 12, 20, 40])
 				for (const row of taskTreeLeaves(tasks, width, theme)) expect(visibleWidth(row)).toBeLessThanOrEqual(width);
 		},
@@ -481,11 +490,11 @@ describe("task tree monitors", () => {
 	it("nests selected children beneath their selected parents in the compact tree", () => {
 		const { store, bar } = fixture();
 		store.apply({ action: "add", tasks: [{ title: "Child work", parentId: 3, status: "in_progress" }] }, () => {});
-		const rows = bar.render(120).slice(2).map(stripVTControlCharacters);
+		const rows = bar.render(120).slice(1).map(stripVTControlCharacters);
 		expect(rows.map((line) => Number(line.match(/#(\d+)/u)?.[1]))).toEqual([1, 2, 3, 5, 4]);
-		expect(rows[1]).toBe(`   ├─ ${iconPrefix("checkboxUnchecked")}#2 Working`);
-		expect(rows[2]).toBe(`   ├─ ${iconPrefix("checkboxUnchecked")}#3 Next · children 0/1 completed`);
-		expect(rows[3]).toBe(`   │  └─ ${iconPrefix("checkboxUnchecked")}#5 Child work`);
+		expect(rows[1]).toBe(`├─ ${iconPrefix("checkboxUnchecked")}#2 Working`);
+		expect(rows[2]).toBe(`├─ ${iconPrefix("checkboxUnchecked")}#3 Next · children 0/1 completed`);
+		expect(rows[3]).toBe(`│  └─ ${iconPrefix("checkboxUnchecked")}#5 Child work`);
 		expect(rows[3]).not.toContain("parent #3");
 	});
 
