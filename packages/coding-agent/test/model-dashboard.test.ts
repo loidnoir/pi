@@ -86,6 +86,25 @@ describe("model dashboard", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("wraps backward with Shift+Tab and reverses Tab for every setting", async () => {
+		const backTab = "\x1b[Z";
+		keys(ENTER, backTab);
+		expect(text()).toContain("Scope: global");
+		keys(TAB);
+		expect(text()).toContain("Scope: session");
+		for (let i = 0; i < 3; i++) {
+			keys(DOWN);
+			const original = text();
+			keys(TAB);
+			expect(text()).not.toBe(original);
+			keys(backTab);
+			expect(text()).toBe(original);
+		}
+		keys(ESC, ESC);
+		await vi.waitFor(() => expect(controls.close).toHaveBeenCalledOnce());
+		expect(options.save).not.toHaveBeenCalled();
+	});
+
 	it("previews inline choices and retains them across back, minimize and reopen until overview close", async () => {
 		vi.mocked(controls.close).mockImplementation(() => {
 			void view.dispose();

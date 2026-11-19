@@ -6,6 +6,7 @@ import {
 	type Focusable,
 	getKeybindings,
 	getSelectPageIndex,
+	matchesKey,
 	type SelectItem,
 	SelectList,
 	truncateToWidth,
@@ -131,9 +132,9 @@ export class ModelDashboardView implements PaneView, Focusable {
 					this.selected = this.overviewSelected;
 					this.error = undefined;
 				} else void this.close();
-			} else if (this.target && kb.matches(data, "tui.input.tab")) {
+			} else if (this.target && (kb.matches(data, "tui.input.tab") || matchesKey(data, "shift+tab"))) {
 				this.error = undefined;
-				this.cycle(this.target);
+				this.cycle(this.target, matchesKey(data, "shift+tab") ? -1 : 1);
 			} else if (!this.target && kb.matches(data, "tui.select.confirm")) {
 				this.target = this.options.targets[this.selected];
 				this.overviewSelected = this.selected;
@@ -174,7 +175,7 @@ export class ModelDashboardView implements PaneView, Focusable {
 				...(fastHint ? [theme.fg("warning", fastHint)] : []),
 				theme.fg(
 					"muted",
-					`${keyText("tui.select.up")}/${keyText("tui.select.down")} move · ${this.target ? `${keyText("tui.input.tab")} change` : `${keyText("tui.select.confirm")} edit`} · ${keyText("tui.select.cancel")} ${this.target ? "back" : "save & close"} · ${keyText("app.pane.minimize")} minimize`,
+					`${keyText("tui.select.up")}/${keyText("tui.select.down")} move · ${this.target ? `${keyText("tui.input.tab")} change · shift+tab previous` : `${keyText("tui.select.confirm")} edit`} · ${keyText("tui.select.cancel")} ${this.target ? "back" : "save & close"} · ${keyText("app.pane.minimize")} minimize`,
 				),
 			];
 			// Keep a selected row reachable even when metadata must disappear on a small pane.
@@ -248,11 +249,14 @@ export class ModelDashboardView implements PaneView, Focusable {
 		});
 	}
 
-	private cycle(target: ModelDashboardTarget): void {
+	private cycle(target: ModelDashboardTarget, direction: 1 | -1): void {
 		const field = fields[this.selected];
 		const scope = this.scope;
 		if (field === "scope") {
-			this.selectedScopes.set(target.id, next(scope, this.options.projectTrusted ? scopes : ["session", "global"]));
+			this.selectedScopes.set(
+				target.id,
+				next(scope, this.options.projectTrusted ? scopes : ["session", "global"], direction),
+			);
 			return;
 		}
 		const key = `${scope}:${target.id}`;
@@ -266,21 +270,21 @@ export class ModelDashboardView implements PaneView, Focusable {
 				...this.options.modelRuntime.getAvailableSnapshot(),
 			])
 				models.set(`${provider}\0${id}`, { provider, id });
-			values.model = next(values.model, [...models.values(), null, undefined]);
+			values.model = next(values.model, [...models.values(), null, undefined], direction);
 		} else {
 			const { model } = this.preview(target.id, scope);
 			if (field === "thinkingLevel")
-				values.thinkingLevel = next(values.thinkingLevel, [
-					...(model ? getSupportedThinkingLevels(model) : []),
-					null,
-					undefined,
-				]);
+				values.thinkingLevel = next(
+					values.thinkingLevel,
+					[...(model ? getSupportedThinkingLevels(model) : []), null, undefined],
+					direction,
+				);
 			else
-				values.fastMode = next(values.fastMode, [
-					...(supportsFastMode(model) ? [true, false] : [false]),
-					null,
-					undefined,
-				]);
+				values.fastMode = next(
+					values.fastMode,
+					[...(supportsFastMode(model) ? [true, false] : [false]), null, undefined],
+					direction,
+				);
 		}
 		if (isDeepStrictEqual(values[field], base[field])) {
 			delete draft.original[field];
@@ -381,8 +385,10 @@ function fieldLabel(id: string, value: ModelDashboardOverrides[keyof ModelDashbo
 	return `${value.provider}/${value.id}`;
 }
 
-function next<T>(value: T, choices: readonly T[]): T {
-	return choices[(choices.findIndex((item) => isDeepStrictEqual(item, value)) + 1) % choices.length];
+function next<T>(value: T, choices: readonly T[], direction: 1 | -1): T {
+	const index = choices.findIndex((item) => isDeepStrictEqual(item, value));
+	if (index < 0) return choices[direction === 1 ? 0 : choices.length - 1];
+	return choices[(index + direction + choices.length) % choices.length];
 }
 
 function clean(text: string): string {

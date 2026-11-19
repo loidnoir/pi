@@ -26,7 +26,7 @@ Keep `auth.json` and any credential commands private. Project settings and exten
 
 ## Select a model
 
-Run `/model` and press **Enter** on **Default** (the main thread), **Btw** (new side chats), or **Agent <name>** (new launches for that profile). Use **↑/↓** to select a setting and **Tab** to cycle its value. **Esc** returns to the list with your edits intact. Close the dashboard to save; minimizing it does not save. Changes to **Default** update the current conversation, and **Project** or **Global** scope also saves startup defaults. Btw and agent changes do not modify existing chats or children.
+Run `/model` and press **Enter** on **Default** (the main thread), **Btw** (new side chats), or **Agent <name>** (new launches for that profile). Use **↑/↓** to select a setting and **Tab** or **Shift+Tab** to cycle its value forward or backward. **Esc** returns to the list with your edits intact. Close the dashboard to save; minimizing it does not save. Changes to **Default** update the current conversation, and **Project** or **Global** scope also saves startup defaults. Btw and agent changes do not modify existing chats or children.
 
 The dashboard uses the shared Rex view when available and a Pi overlay otherwise. Presentation flags work as with `/agents`: `/model --tui`, `/model --rex --floating`, or `/model --split`. The model-selection shortcut opens the same dashboard. `/model provider/model-id` still switches the main model directly; a search argument opens the searchable model picker. Pickers list models whose providers have usable authentication.
 
