@@ -1,5 +1,6 @@
 // Interactive role selection, child status, and paged history without adding view traffic to main chat.
 import { getKeybindings, Input, indexedColor, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { renderFooterLine } from "../../modes/interactive/components/footer.ts";
 import { keyText } from "../../modes/interactive/components/keybinding-hints.ts";
 import { WorkingStatusIndicator } from "../../modes/interactive/components/status-indicator.ts";
 import { type IconName, icon, iconPrefix } from "../../modes/interactive/icons.ts";
@@ -8,9 +9,10 @@ import { stripAnsi } from "../../utils/ansi.ts";
 import { sanitizeBinaryOutput } from "../../utils/shell.ts";
 import { ChatTranscript } from "../panes/chat-transcript.ts";
 import type { PaneControls, PaneView } from "../panes/host.ts";
+import { createUsageTotals } from "../usage-totals.ts";
 import type { AgentDefinitions } from "./definitions.ts";
 import type { SubagentManager } from "./manager.ts";
-import type { SubagentInfo, SubagentStatus, SubagentTranscriptPage } from "./state.ts";
+import { type SubagentInfo, type SubagentStatus, type SubagentTranscriptPage, TRANSCRIPT_PAGE_SIZE } from "./state.ts";
 
 export interface SubagentsViewActions {
 	definitions(): AgentDefinitions;
@@ -33,11 +35,16 @@ export class SubagentsView implements PaneView {
 	private choosingRole = false;
 	private detail: string | undefined;
 	private editing: Editing | undefined;
-	private page: SubagentTranscriptPage = { cwd: "", messages: [], offset: 0, totalMessages: 0 };
+	private page: SubagentTranscriptPage = {
+		cwd: "",
+		messages: [],
+		offset: 0,
+		totalMessages: 0,
+		usage: createUsageTotals(),
+	};
 	private transcript: ChatTranscript | undefined;
 	private expanded = false;
-	private offsets = [0];
-	private pageIndex = 0;
+	private follow = true;
 	private scroll = 0;
 	private error: string | undefined;
 	private busy = false;
@@ -59,7 +66,7 @@ export class SubagentsView implements PaneView {
 					0,
 					this.agents.findIndex((agent) => agent.id === id),
 				);
-				this.readPage();
+				this.readPage("end");
 			}
 		} catch (error) {
 			this.error = String(error);
@@ -82,7 +89,14 @@ export class SubagentsView implements PaneView {
 					if (this.agents.length) this.selected++;
 					this.agents.unshift(info);
 				} else this.agents[index] = info;
-				if (event.id === this.detail && this.page.nextOffset === undefined) this.readPage();
+				if (event.id === this.detail) {
+					if (this.follow) this.readPage("end");
+					else
+						this.readPage(
+							this.page.offset,
+							this.page.nextOffset === undefined ? TRANSCRIPT_PAGE_SIZE : this.page.messages.length,
+						);
+				}
 			} catch (error) {
 				this.error = String(error);
 			}
@@ -104,10 +118,8 @@ export class SubagentsView implements PaneView {
 		}
 		if (kb.matches(data, "tui.select.cancel")) {
 			if (this.choosingRole) this.choosingRole = false;
-			else if (this.detail) {
-				this.detail = undefined;
-				this.scroll = 0;
-			} else this.controls.close();
+			else if (this.detail) this.detail = undefined;
+			else this.controls.close();
 		} else if (kb.matches(data, "app.agents.start")) {
 			try {
 				this.catalog = this.actions.definitions();
@@ -134,10 +146,8 @@ export class SubagentsView implements PaneView {
 			if (!agent || this.busy) return;
 			if (kb.matches(data, "tui.select.confirm")) {
 				this.detail = agent.id;
-				this.offsets = [0];
-				this.pageIndex = 0;
-				this.scroll = 0;
-				this.readPage();
+				this.follow = true;
+				this.readPage("end");
 			} else if (kb.matches(data, "app.agents.stop")) {
 				if (agent.id === this.renderedSelection) void this.run(() => this.manager.cancel(agent.id));
 			} else if (kb.matches(data, "app.agents.delete")) {
@@ -159,15 +169,19 @@ export class SubagentsView implements PaneView {
 			this.roleSelection = Math.max(0, Math.min(this.catalog.agents.length - 1, this.roleSelection + lines));
 		} else if (this.detail) {
 			const end = Math.max(0, this.rendered.length - this.viewportLines);
-			if (lines < 0 && this.scroll === 0 && this.pageIndex > 0) {
-				this.pageIndex--;
-				this.readPage();
+			const top = this.follow ? end : Math.min(this.scroll, end);
+			this.follow = false;
+			if (lines < 0 && top === 0 && this.page.offset > 0) {
+				const start = Math.max(0, this.page.offset - TRANSCRIPT_PAGE_SIZE);
+				this.readPage(start, this.page.offset - start);
 				this.scroll = Infinity;
-			} else if (lines > 0 && this.scroll === end && this.page.nextOffset !== undefined) {
-				this.offsets[++this.pageIndex] = this.page.nextOffset;
-				this.readPage();
+			} else if (lines > 0 && top === end && this.page.nextOffset !== undefined) {
+				this.readPage(this.page.nextOffset);
 				this.scroll = 0;
-			} else this.scroll = Math.max(0, Math.min(end, this.scroll + lines));
+			} else {
+				this.scroll = Math.max(0, Math.min(end, top + lines));
+				this.follow = this.scroll === end && this.page.nextOffset === undefined;
+			}
 		} else this.selected = Math.max(0, Math.min(this.agents.length - 1, this.selected + lines));
 	}
 
@@ -175,7 +189,8 @@ export class SubagentsView implements PaneView {
 		this.renderedSelection = undefined;
 		if (this.disposed) return [];
 		const lines: string[] = [];
-		const agent = this.selectedAgent();
+		const chat = this.choosingRole || !this.detail ? undefined : this.selectedAgent();
+		const bottom = this.renderBottom(width, chat);
 		this.viewportLines = Math.max(1, height - 5);
 		if (this.choosingRole || this.detail) this.stopWorking();
 		if (this.choosingRole) {
@@ -192,37 +207,29 @@ export class SubagentsView implements PaneView {
 			}
 			for (const error of this.catalog.errors.slice(0, 2))
 				lines.push(theme.fg("warning", line(`${error.path}: ${error.error}`, width)));
-		} else if (this.detail && agent) {
-			if (width > 0 && height > 0) this.renderedSelection = agent.id;
-			const prefix = `${statusColor(agent.status, icon("statusDot"))}  ${agentIconPrefix(agent.role)}`;
+		} else if (chat) {
+			if (width > 0 && height > 0) this.renderedSelection = chat.id;
+			const prefix = `${statusColor(chat.status, icon("statusDot"))}  ${agentIconPrefix(chat.role)}`;
 			lines.push(
 				truncateToWidth(
-					`${prefix}${theme.bold(line(agent.label, Math.max(0, width - visibleWidth(prefix))))}`,
+					`${prefix}${theme.bold(line(chat.label, Math.max(0, width - visibleWidth(prefix))))}`,
 					width,
 				),
-				line(`Read-only agent history · ${agent.id}`, width),
+				line(`Read-only agent history · ${chat.id}`, width),
 				truncateToWidth(
-					`${statusColor(agent.status, agent.status)} · ${line(`${agent.role} · ${agent.model} · thinking ${agent.thinkingLevel} · run ${agent.run}`, width)}`,
+					`${statusColor(chat.status, chat.status)} · ${line(`${chat.role} · run ${chat.run}`, width)}`,
 					width,
 				),
 			);
-			if (agent.error) lines.push(theme.fg("error", line(agent.error, width)));
-			if (agent.labelError) lines.push(theme.fg("warning", line(`Task label: ${agent.labelError}`, width)));
+			if (chat.error) lines.push(theme.fg("error", line(chat.error, width)));
+			if (chat.labelError) lines.push(theme.fg("warning", line(`Task label: ${chat.labelError}`, width)));
 			this.rendered = this.transcript?.render(width) ?? [];
-			const available = Math.max(1, height - lines.length - 6);
-			this.viewportLines = available;
-			this.scroll = Math.min(this.scroll, Math.max(0, this.rendered.length - available));
-			lines.push(...this.rendered.slice(this.scroll, this.scroll + available));
-			lines.push(
-				theme.fg(
-					"muted",
-					line(
-						`Messages ${this.page.offset}–${this.page.offset + this.page.messages.length}/${this.page.totalMessages}${this.page.nextOffset !== undefined ? " · more pages below" : ""} · ${keyText("app.tools.expand")} expand tools`,
-						width,
-					),
-				),
-			);
-			if (agent.historyPath) lines.push(theme.fg("muted", line(agent.historyPath, width)));
+			this.viewportLines = Math.max(0, height - lines.length - bottom.length);
+			const end = Math.max(0, this.rendered.length - this.viewportLines);
+			if (this.scroll >= end && this.page.nextOffset === undefined) this.follow = true;
+			this.scroll = this.follow ? end : Math.min(this.scroll, end);
+			const visible = this.rendered.slice(this.scroll, this.scroll + this.viewportLines);
+			lines.push(...visible, ...Array<string>(this.viewportLines - visible.length).fill(""));
 		} else {
 			lines.push(
 				theme.fg(
@@ -254,6 +261,11 @@ export class SubagentsView implements PaneView {
 				);
 			}
 		}
+		return [...lines, ...bottom].slice(0, height);
+	}
+
+	private renderBottom(width: number, chat: SubagentInfo | undefined): string[] {
+		const lines: string[] = [];
 		if (this.error) lines.push(theme.fg("error", line(this.error, width)));
 		if (this.editing) {
 			lines.push(
@@ -264,7 +276,7 @@ export class SubagentsView implements PaneView {
 						: "Continuation instruction:",
 			);
 			lines.push(...this.editing.input.render(width));
-		} else {
+		} else if (!chat) {
 			lines.push(
 				theme.fg(
 					"muted",
@@ -284,7 +296,23 @@ export class SubagentsView implements PaneView {
 				),
 			);
 		}
-		return lines.slice(0, height);
+		if (chat) {
+			const slash = chat.model.indexOf("/");
+			lines.push(
+				renderFooterLine(
+					{
+						cwd: clean(this.page.cwd),
+						usage: this.page.usage,
+						context: this.page.contextUsage ?? { percent: null, contextWindow: 0 },
+						model: `${line(chat.model.slice(slash + 1), width)} • ${chat.thinkingLevel === "off" ? "thinking off" : chat.thinkingLevel}`,
+						provider: clean(chat.model.slice(0, slash)),
+						statuses: this.busy ? "working" : undefined,
+					},
+					width,
+				),
+			);
+		}
+		return lines;
 	}
 
 	dispose(): void {
@@ -320,22 +348,20 @@ export class SubagentsView implements PaneView {
 				if (this.disposed) return;
 				this.detail = agent.id;
 				this.choosingRole = false;
-				this.offsets = [0];
-				this.pageIndex = 0;
-				this.scroll = 0;
+				this.follow = true;
 				this.agents = this.manager.list();
 				this.selected = Math.max(
 					0,
 					this.agents.findIndex((entry) => entry.id === agent.id),
 				);
-				this.readPage();
+				this.readPage("end");
 			});
 		};
 		this.editing = { ...action, input };
 	}
-	private readPage(): void {
+	private readPage(offset: number | "end", limit = TRANSCRIPT_PAGE_SIZE): void {
 		if (!this.detail) return;
-		const page = this.manager.transcript(this.detail, this.offsets[this.pageIndex]);
+		const page = this.manager.transcript(this.detail, offset, limit);
 		if (!this.transcript || this.page.cwd !== page.cwd) {
 			this.transcript?.dispose();
 			this.transcript = new ChatTranscript({ cwd: page.cwd, invalidate: () => this.controls.invalidate() });

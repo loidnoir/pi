@@ -4,7 +4,7 @@ import type { AgentSession } from "../../../core/agent-session.ts";
 import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ContextUsage } from "../../../core/extensions/types.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
-import { addUsageToTotals, createUsageTotals, type UsageTotals } from "../../../core/usage-totals.ts";
+import { sumSessionUsage, type UsageTotals } from "../../../core/usage-totals.ts";
 import { icon, iconPrefix } from "../icons.ts";
 import { theme } from "../theme/theme.ts";
 
@@ -42,6 +42,69 @@ export function formatCwdForFooter(cwd: string, home: string | undefined): strin
 
 	if (!isInsideHome) return cwd;
 	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
+}
+
+const SEPARATOR = " • ";
+
+export interface FooterLineFields {
+	cwd: string;
+	usage: UsageTotals;
+	context: Pick<ContextUsage, "percent" | "contextWindow">;
+	model: string;
+	provider?: string;
+	badge?: string;
+	statuses?: string;
+}
+
+export function renderFooterLine(fields: FooterLineFields, width: number): string {
+	if (width <= 0) return "";
+
+	const contextPercentValue = fields.context.percent ?? 0;
+	const contextPercent = fields.context.percent !== null ? `${contextPercentValue.toFixed(1)}%` : "?";
+	const contextDisplay = `${contextPercent}/${formatTokens(fields.context.contextWindow)}`;
+	const contextColor = contextPercentValue > 90 ? "error" : contextPercentValue > 70 ? "warning" : "dim";
+	const rightParts = [theme.fg(contextColor, contextDisplay)];
+	if (fields.badge !== undefined) rightParts.push(fields.badge);
+
+	const pwd = sanitizeStatusText(formatCwdForFooter(fields.cwd, process.env.HOME || process.env.USERPROFILE));
+	const tokens = theme.fg("dim", `↑${formatTokens(fields.usage.input)} ↓${formatTokens(fields.usage.output)}`);
+	const tokensWidth = visibleWidth(tokens);
+	const minPadding = 2;
+	const ellipsis = theme.fg("dim", "...");
+	const leftContentWidth = visibleWidth(pwd) + 1 + tokensWidth;
+	let model = fields.model;
+	if (fields.provider !== undefined) {
+		const withProvider = `(${sanitizeStatusText(fields.provider)}) ${model}`;
+		const rightContentWidth =
+			visibleWidth(rightParts.join(SEPARATOR)) + visibleWidth(SEPARATOR) + visibleWidth(withProvider);
+		if (leftContentWidth + minPadding + rightContentWidth <= width) {
+			model = withProvider;
+		}
+	}
+	rightParts.push(theme.fg("dim", model));
+	// A long directory must not push all context/model information off the line.
+	const reservedLeft = Math.min(leftContentWidth, Math.floor(width / 2));
+	const right = truncateToWidth(
+		rightParts.join(theme.fg("dim", SEPARATOR)),
+		Math.max(0, width - reservedLeft - minPadding),
+		ellipsis,
+	);
+	const rightWidth = visibleWidth(right);
+	const leftWidth = rightWidth > 0 ? width - rightWidth - minPadding : width;
+	const pwdWidth = leftWidth - tokensWidth - 1;
+	let left =
+		pwdWidth > 0
+			? `${truncateToWidth(theme.fg("dim", pwd), pwdWidth, ellipsis)} ${tokens}`
+			: truncateToWidth(tokens, leftWidth, ellipsis);
+
+	// Extension statuses use only spare space so they cannot displace the main footer fields.
+	const statusWidth = leftWidth - visibleWidth(left) - visibleWidth(SEPARATOR);
+	if (fields.statuses && statusWidth > 0) {
+		left += theme.fg("dim", SEPARATOR) + truncateToWidth(fields.statuses, statusWidth, ellipsis);
+	}
+
+	const padding = rightWidth > 0 ? " ".repeat(width - visibleWidth(left) - rightWidth) : "";
+	return left + padding + right;
 }
 
 interface SessionStats {
@@ -104,19 +167,7 @@ export class FooterComponent implements Component {
 		}
 
 		// Calculate cumulative usage from ALL session entries (not just post-compaction messages)
-		const usageTotals = createUsageTotals();
-
-		for (const entry of sessionManager.getEntries()) {
-			if (entry.type === "usage") {
-				addUsageToTotals(usageTotals, entry.usage);
-			} else if (entry.type === "message" && entry.message.role === "assistant") {
-				addUsageToTotals(usageTotals, entry.message.usage);
-			} else if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage) {
-				addUsageToTotals(usageTotals, entry.message.usage);
-			} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
-				addUsageToTotals(usageTotals, entry.usage);
-			}
-		}
+		const usageTotals = sumSessionUsage(sessionManager.getEntries());
 
 		// Calculate context usage from session (handles compaction correctly).
 		// After compaction, tokens are unknown until the next LLM response.
@@ -138,17 +189,6 @@ export class FooterComponent implements Component {
 
 		const state = this.session.state;
 		const { usageTotals, contextUsage } = this.getSessionStats();
-		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
-		const contextPercentValue = contextUsage?.percent ?? 0;
-		const contextPercent = contextUsage?.percent !== null ? `${contextPercentValue.toFixed(1)}%` : "?";
-		const contextDisplay = `${contextPercent}/${formatTokens(contextWindow)}`;
-		const contextColor = contextPercentValue > 90 ? "error" : contextPercentValue > 70 ? "warning" : "dim";
-		const separator = " • ";
-		const rightParts = [theme.fg(contextColor, contextDisplay)];
-		if (areExperimentalFeaturesEnabled()) {
-			rightParts.push(theme.bold(theme.fg("warning", "xp")));
-		}
-
 		const extensionStatuses = this.footerData.getExtensionStatuses();
 		const fastActive = extensionStatuses.get("fast") === "fast (priority)";
 		const fastPrefix = fastActive ? iconPrefix("fast") : "";
@@ -157,69 +197,44 @@ export class FooterComponent implements Component {
 		if (state.model?.reasoning) {
 			const thinkingLevel = state.thinkingLevel || "off";
 			const thinking = thinkingLevel === "off" ? "thinking off" : thinkingLevel;
-			modelDisplay += `${separator}${routed ? "" : fastPrefix}${thinking}`;
+			modelDisplay += `${SEPARATOR}${routed ? "" : fastPrefix}${thinking}`;
 		} else if (!routed && fastActive) modelDisplay += ` ${icon("fast")}`;
 		// A virtual model routes each request; show where the latest response went.
 		if (routed) {
 			const level = routed.thinkingLevel
-				? `${separator}${fastPrefix}${routed.thinkingLevel}`
+				? `${SEPARATOR}${fastPrefix}${routed.thinkingLevel}`
 				: fastActive
 					? ` ${icon("fast")}`
 					: "";
 			modelDisplay += ` → ${sanitizeStatusText(routed.model.id)}${level}`;
 		}
 
-		const pwd = sanitizeStatusText(
-			formatCwdForFooter(this.session.sessionManager.getCwd(), process.env.HOME || process.env.USERPROFILE),
-		);
-		const tokens = theme.fg("dim", `↑${formatTokens(usageTotals.input)} ↓${formatTokens(usageTotals.output)}`);
-		const tokensWidth = visibleWidth(tokens);
-		const minPadding = 2;
-		const ellipsis = theme.fg("dim", "...");
-		const leftContentWidth = visibleWidth(pwd) + 1 + tokensWidth;
-		if (this.footerData.getAvailableProviderCount() > 1 && state.model) {
-			const withProvider = `(${sanitizeStatusText(state.model.provider)}) ${modelDisplay}`;
-			const rightContentWidth =
-				visibleWidth(rightParts.join(separator)) + visibleWidth(separator) + visibleWidth(withProvider);
-			if (leftContentWidth + minPadding + rightContentWidth <= width) {
-				modelDisplay = withProvider;
-			}
-		}
-		rightParts.push(theme.fg("dim", modelDisplay));
-		// A long directory must not push all context/model information off the line.
-		const reservedLeft = Math.min(leftContentWidth, Math.floor(width / 2));
-		const right = truncateToWidth(
-			rightParts.join(theme.fg("dim", separator)),
-			Math.max(0, width - reservedLeft - minPadding),
-			ellipsis,
-		);
-		const rightWidth = visibleWidth(right);
-		const leftWidth = rightWidth > 0 ? width - rightWidth - minPadding : width;
-		const pwdWidth = leftWidth - tokensWidth - 1;
-		let left =
-			pwdWidth > 0
-				? `${truncateToWidth(theme.fg("dim", pwd), pwdWidth, ellipsis)} ${tokens}`
-				: truncateToWidth(tokens, leftWidth, ellipsis);
+		const statuses = Array.from(extensionStatuses.entries())
+			.filter(([key]) => key !== "fast" || !fastActive)
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([key, text]) => {
+				const label = sanitizeStatusText(text);
+				if (!visibleWidth(label)) return "";
+				const glyph =
+					key === "jobs" ? "job" : key === "subagents" ? "agent" : key === "recovery" ? "pause" : undefined;
+				return glyph ? iconPrefix(glyph) + label : label;
+			})
+			.filter(Boolean)
+			.join(theme.fg("dim", SEPARATOR));
 
-		// Extension statuses use only spare space so they cannot displace the main footer fields.
-		const statusWidth = leftWidth - visibleWidth(left) - visibleWidth(separator);
-		if (extensionStatuses.size > 0 && statusWidth > 0) {
-			const statuses = Array.from(extensionStatuses.entries())
-				.filter(([key]) => key !== "fast" || !fastActive)
-				.sort(([a], [b]) => a.localeCompare(b))
-				.map(([key, text]) => {
-					const label = sanitizeStatusText(text);
-					if (!visibleWidth(label)) return "";
-					const glyph =
-						key === "jobs" ? "job" : key === "subagents" ? "agent" : key === "recovery" ? "pause" : undefined;
-					return glyph ? iconPrefix(glyph) + label : label;
-				})
-				.filter(Boolean)
-				.join(theme.fg("dim", separator));
-			if (statuses) left += theme.fg("dim", separator) + truncateToWidth(statuses, statusWidth, ellipsis);
-		}
-
-		const padding = rightWidth > 0 ? " ".repeat(width - visibleWidth(left) - rightWidth) : "";
-		return [left + padding + right];
+		return [
+			renderFooterLine(
+				{
+					cwd: this.session.sessionManager.getCwd(),
+					usage: usageTotals,
+					context: contextUsage ?? { percent: 0, contextWindow: state.model?.contextWindow ?? 0 },
+					model: modelDisplay,
+					provider: this.footerData.getAvailableProviderCount() > 1 ? state.model?.provider : undefined,
+					badge: areExperimentalFeaturesEnabled() ? theme.bold(theme.fg("warning", "xp")) : undefined,
+					statuses,
+				},
+				width,
+			),
+		];
 	}
 }

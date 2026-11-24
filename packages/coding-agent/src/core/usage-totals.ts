@@ -27,6 +27,23 @@ export function addUsageToTotals(totals: UsageTotals, usage: Usage): void {
 	totals.cost += usage.cost.total;
 }
 
+export function sumSessionUsage(entries: readonly SessionEntry[]): UsageTotals {
+	const totals = createUsageTotals();
+	for (const entry of entries) {
+		if (entry.type === "message" && entry.message.role === "assistant") {
+			addUsageToTotals(totals, entry.message.usage);
+		} else if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage) {
+			addUsageToTotals(totals, entry.message.usage);
+		} else if (
+			(entry.type === "usage" || entry.type === "branch_summary" || entry.type === "compaction") &&
+			entry.usage
+		) {
+			addUsageToTotals(totals, entry.usage);
+		}
+	}
+	return totals;
+}
+
 /** Sum of two usages, keeping the optional token splits when either side reports them. */
 export function combineUsage(first: Usage, second: Usage): Usage {
 	return {

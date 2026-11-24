@@ -7,6 +7,7 @@ import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
 import { stripAnsi } from "../../utils/ansi.ts";
 import { sanitizeBinaryOutput } from "../../utils/shell.ts";
+import type { ContextUsage } from "../extensions/types.ts";
 import { ModelThinkingLevelSchema } from "../pi-ai-schemas.ts";
 import type { UsageTotals } from "../usage-totals.ts";
 import { AgentDefinitionSchema } from "./definitions.ts";
@@ -81,12 +82,15 @@ export interface SubagentHistoryPage {
 	nextOffset?: number;
 	totalCharacters: number;
 }
+export const TRANSCRIPT_PAGE_SIZE = 100;
 export interface SubagentTranscriptPage {
 	cwd: string;
 	messages: AgentMessage[];
 	offset: number;
 	nextOffset?: number;
 	totalMessages: number;
+	usage: UsageTotals;
+	contextUsage?: ContextUsage;
 }
 export interface SubagentResult {
 	agent: SubagentInfo;

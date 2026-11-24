@@ -14,6 +14,7 @@ import lockfile from "proper-lockfile";
 import { getAgentDir } from "../../config.ts";
 import { raceWithAbortSignal } from "../../utils/abort.ts";
 import type { AgentSession } from "../agent-session.ts";
+import { estimateProjectedContextTokens } from "../compaction/compaction.ts";
 import { serializeConversation } from "../compaction/utils.ts";
 import { convertToLlm } from "../messages.ts";
 import { getModelTargetPreferences, getSessionFastMode, resolveModelTarget } from "../model-preferences.ts";
@@ -22,6 +23,7 @@ import { generateDisplayName } from "../naming.ts";
 import { DefaultResourceLoader } from "../resource-loader.ts";
 import { createAgentSession } from "../sdk.ts";
 import {
+	buildSessionProjection,
 	loadEntriesFromFile,
 	parseSessionEntries,
 	type ReadonlySessionManager,
@@ -33,7 +35,7 @@ import { SETTINGS_DEFAULTS } from "../settings-defaults.ts";
 import { type Settings, SettingsManager } from "../settings-manager.ts";
 import { allToolNames } from "../tools/index.ts";
 import { truncateHead } from "../tools/truncate.ts";
-import { addUsageToTotals, createUsageTotals } from "../usage-totals.ts";
+import { addUsageToTotals, createUsageTotals, sumSessionUsage } from "../usage-totals.ts";
 import type { AgentDefinition } from "./definitions.ts";
 import {
 	readSubagentRecord,
@@ -44,6 +46,7 @@ import {
 	type SubagentResult,
 	type SubagentTranscriptPage,
 	subagentInfo,
+	TRANSCRIPT_PAGE_SIZE,
 	writeSubagentRecord,
 } from "./state.ts";
 
@@ -415,13 +418,16 @@ export class SubagentManager {
 	}
 
 	/** Read original messages for presentation, bounded to 100 complete messages without changing the raw history API. */
-	transcript(id: string, offset = 0, limit = 100): SubagentTranscriptPage {
+	transcript(id: string, offset: number | "end" = 0, limit = TRANSCRIPT_PAGE_SIZE): SubagentTranscriptPage {
 		const record = this.getRecord(id);
 		// Pagination bounds are a declaration policy not expressed by the number type.
-		if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1)
+		if (
+			(offset !== "end" && (!Number.isSafeInteger(offset) || offset < 0)) ||
+			!Number.isSafeInteger(limit) ||
+			limit < 1
+		)
 			throw new Error("Transcript offset must be nonnegative and limit must be positive integers");
-		const page: SubagentTranscriptPage = { cwd: record.cwd, messages: [], offset, totalMessages: 0 };
-		const end = offset + Math.min(limit, 100);
+		const size = Math.min(limit, TRANSCRIPT_PAGE_SIZE);
 		const owner = this.work.get(id)?.history ?? this.memory.get(id);
 		// The normal disk loader repairs trailing newlines; presentation must never write another owner's log.
 		const entries = owner
@@ -429,15 +435,29 @@ export class SubagentManager {
 			: parseSessionEntries(readFileSync(this.historyPath(id)!, "utf8")).filter(
 					(entry): entry is SessionEntry => entry.type !== "session",
 				);
-		for (const entry of entries) {
-			for (const message of sessionEntryToContextMessages(entry)) {
-				if (message.role === "system") continue;
-				if (page.totalMessages >= offset && page.totalMessages < end) page.messages.push(message);
-				page.totalMessages++;
+		const messages = entries.flatMap(sessionEntryToContextMessages).filter((message) => message.role !== "system");
+		// The newest page starts on half-page steps: a start that moved with every message would rebuild each rendered row.
+		const step = Math.ceil(size / 2);
+		const start = offset === "end" ? Math.max(0, Math.ceil((messages.length - size) / step) * step) : offset;
+		const end = start + size;
+		let contextUsage = this.work.get(id)?.session?.getContextUsage();
+		if (!contextUsage) {
+			const contextWindow =
+				this.options.modelRuntime.getModel(record.model.provider, record.model.id)?.contextWindow ?? 0;
+			if (contextWindow > 0) {
+				const tokens = estimateProjectedContextTokens(buildSessionProjection(entries), entries).tokens;
+				contextUsage = { tokens, contextWindow, percent: (tokens / contextWindow) * 100 };
 			}
 		}
-		if (end < page.totalMessages) page.nextOffset = end;
-		return page;
+		return {
+			cwd: record.cwd,
+			messages: messages.slice(start, end),
+			offset: start,
+			totalMessages: messages.length,
+			...(end < messages.length ? { nextOffset: end } : {}),
+			usage: sumSessionUsage(entries),
+			...(contextUsage ? { contextUsage } : {}),
+		};
 	}
 
 	/** Return the final response with the standard display cap; the complete response stays in the child's log. */
@@ -743,20 +763,8 @@ export class SubagentManager {
 		record.status = status;
 		record.error = error;
 		record.updatedAt = Date.now();
-		const totals = createUsageTotals();
 		const entries = work.history.getEntries();
-		for (const entry of entries) {
-			if (entry.type === "message" && entry.message.role === "assistant")
-				addUsageToTotals(totals, entry.message.usage);
-			else if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage)
-				addUsageToTotals(totals, entry.message.usage);
-			else if (
-				(entry.type === "usage" || entry.type === "compaction" || entry.type === "branch_summary") &&
-				entry.usage
-			)
-				addUsageToTotals(totals, entry.usage);
-		}
-		record.usage = totals;
+		record.usage = sumSessionUsage(entries);
 		const last = this.lastResponse(record, entries);
 		record.preview = last ? contentText(last.content).slice(-256) : "";
 		let failure: unknown;

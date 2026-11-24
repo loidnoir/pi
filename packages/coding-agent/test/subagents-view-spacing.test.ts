@@ -52,7 +52,13 @@ function setup(entries: SubagentInfo[]) {
 			listener = callback;
 			return () => {};
 		},
-		transcript: vi.fn(() => ({ cwd: process.cwd(), messages: [], offset: 0, totalMessages: 0 })),
+		transcript: vi.fn(() => ({
+			cwd: process.cwd(),
+			messages: [],
+			offset: 0,
+			totalMessages: 0,
+			usage: createUsageTotals(),
+		})),
 	};
 	const controls = { invalidate: vi.fn(), close: vi.fn(), minimize: async () => {}, setTitle: async () => {} };
 	const view = new SubagentsView(manager as unknown as SubagentManager, controls, {
